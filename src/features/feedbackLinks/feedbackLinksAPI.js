@@ -9,6 +9,8 @@ export const feedbackLinksAPI = {
 
   getById: (id) => axiosInstance.get(`/feedback-links/${id}`, { suppressToast: true }),
 
+  getBySlug: (slug) => axiosInstance.get(`/feedback-links/slug/${slug}`, { suppressToast: true }),
+
   activate: (id) => axiosInstance.patch(`/feedback-links/${id}/activate`),
 
   deactivate: (id) => axiosInstance.patch(`/feedback-links/${id}/deactivate`),

@@ -14,10 +14,12 @@ import {
   selectRepliesStatus,
   selectRepliesError,
   selectRepliesPagination,
-  setPage,
+  incrementSkip,
+  setSkip,
+  clearReplies,
   fetchReplies,
 } from '../features/replies/repliesSlice';
-import { Pagination } from '../components/Pagination';
+import { LoadMore } from '../components/Pagination';
 
 export const FeedbackLink = () => {
   const { id } = useParams();
@@ -35,13 +37,17 @@ export const FeedbackLink = () => {
   const replies = useSelector(selectReplies);
   const repliesStatus = useSelector(selectRepliesStatus);
   const repliesError = useSelector(selectRepliesError);
-  const { currentPage, totalPages, totalCount } = useSelector(selectRepliesPagination);
+  const { totalCount, hasMore } = useSelector(selectRepliesPagination);
 
   useEffect(() => {
-    if (!currentLink || currentLink.id !== id) {
+    // Reset replies state when navigating to this page
+    dispatch(clearReplies());
+    dispatch(setSkip(0));
+
+    if (!currentLink || currentLink._id !== id) {
       dispatch(fetchLinkById(id));
     }
-    dispatch(fetchReplies({ linkId: id, page: 1, limit: 10 }));
+    dispatch(fetchReplies({ linkId: id }));
   }, [dispatch, id, currentLink]);
 
   const handleReplyChange = (e) => {
@@ -62,7 +68,9 @@ export const FeedbackLink = () => {
       await dispatch(createReply({ linkId: id, replyData: { user: replyUser || null, message: replyMessage } })).unwrap();
       setReplyMessage('');
       setReplyUser('');
-      dispatch(fetchReplies({ linkId: id, page: 1, limit: 10 }));
+      dispatch(clearReplies());
+      dispatch(setSkip(0));
+      dispatch(fetchReplies({ linkId: id }));
     } catch (err) {
       setError(err.message || 'Failed to submit reply');
     } finally {
@@ -70,9 +78,9 @@ export const FeedbackLink = () => {
     }
   };
 
-  const handlePageChange = (page) => {
-    dispatch(setPage(page));
-    dispatch(fetchReplies({ linkId: id, page, limit: 10 }));
+  const loadMore = () => {
+    dispatch(incrementSkip());
+    dispatch(fetchReplies({ linkId: id }));
   };
 
   if (linksStatus === 'loading' && !currentLink) {
@@ -135,7 +143,7 @@ export const FeedbackLink = () => {
             </div>
             <div className="flex items-end gap-2">
               <Link
-                to={`/links/${currentLink.id}/replies`}
+                to={`/links/${currentLink._id}/replies`}
                 className="btn-secondary px-4 py-2 text-sm"
               >
                 View All Replies
@@ -218,7 +226,7 @@ export const FeedbackLink = () => {
               ) : (
                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
                   {replies.map((reply) => (
-                    <div key={reply.id} className="py-5">
+                    <div key={reply._id} className="py-5">
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
                           {(reply.user?.username || reply.user || 'Anonymous')[0].toUpperCase()}
@@ -234,10 +242,10 @@ export const FeedbackLink = () => {
                   ))}
                 </div>
               )}
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={handlePageChange}
+              <LoadMore
+                hasMore={hasMore}
+                isLoading={repliesStatus === 'loading'}
+                onLoadMore={loadMore}
                 totalCount={totalCount}
               />
             </div>

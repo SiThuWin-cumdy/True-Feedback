@@ -13,6 +13,7 @@ import { Signup } from './Pages/Signup';
 import { Dashboard } from './Pages/Dashboard';
 import { FeedbackLink } from './Pages/FeedbackLink';
 import { Replies } from './Pages/Replies';
+import { PublicLink } from './Pages/PublicLink';
 import { Toaster } from 'react-hot-toast';
 import { selectUser, selectAuthStatus } from './features/auth/authSlice';
 
@@ -72,6 +73,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/:slug" element={<PublicLink />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </div>

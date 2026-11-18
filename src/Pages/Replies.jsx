@@ -4,16 +4,19 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   selectCurrentLink,
   selectLinksStatus,
+  fetchLinkById,
 } from '../features/feedbackLinks/feedbackLinksSlice';
 import {
   selectReplies,
   selectRepliesStatus,
   selectRepliesError,
   selectRepliesPagination,
-  setPage,
+  incrementSkip,
+  setSkip,
+  clearReplies,
   fetchReplies,
 } from '../features/replies/repliesSlice';
-import { Pagination } from '../components/Pagination';
+import { LoadMore } from '../components/Pagination';
 
 export const Replies = () => {
   const { id } = useParams();
@@ -25,19 +28,23 @@ export const Replies = () => {
   const replies = useSelector(selectReplies);
   const repliesStatus = useSelector(selectRepliesStatus);
   const repliesError = useSelector(selectRepliesError);
-  const { currentPage, totalPages, totalCount } = useSelector(selectRepliesPagination);
+  const { totalCount, hasMore } = useSelector(selectRepliesPagination);
 
   useEffect(() => {
-    if (!currentLink || currentLink.id !== id) {
-      navigate(`/links/${id}`);
+    // Reset replies state when navigating to this page
+    dispatch(clearReplies());
+    dispatch(setSkip(0));
+
+    if (!currentLink || currentLink._id !== id) {
+      dispatch(fetchLinkById(id));
       return;
     }
-    dispatch(fetchReplies({ linkId: id, page: currentPage, limit: 10 }));
-  }, [dispatch, id, currentLink, currentPage, navigate]);
+    dispatch(fetchReplies({ linkId: id }));
+  }, [dispatch, id, currentLink]);
 
-  const handlePageChange = (page) => {
-    dispatch(setPage(page));
-    dispatch(fetchReplies({ linkId: id, page, limit: 10 }));
+  const loadMore = () => {
+    dispatch(incrementSkip());
+    dispatch(fetchReplies({ linkId: id }));
   };
 
   if (linksStatus === 'loading' && !currentLink) {
@@ -66,7 +73,7 @@ export const Replies = () => {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <nav className="mb-6">
           <Link
-            to={`/links/${id}`}
+            to={`/dashboard`}
             className="text-sm text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -82,7 +89,12 @@ export const Replies = () => {
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
                 {currentLink.title}
               </h1>
-              <p className="text-gray-600 dark:text-gray-400 text-sm">
+              {currentLink.description && (
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                  {currentLink.description}
+                </p>
+              )}
+              <p className="text-gray-600 dark:text-gray-400 text-sm mt-2">
                 All replies for this feedback link
               </p>
             </div>
@@ -115,7 +127,7 @@ export const Replies = () => {
           ) : (
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {replies.map((reply) => (
-                <div key={reply.id} className="py-5">
+                <div key={reply._id} className="py-5">
                   <div className="flex items-start gap-3">
                     <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
                       {(reply.user?.username || reply.user || 'Anonymous')[0].toUpperCase()}
@@ -132,10 +144,10 @@ export const Replies = () => {
             </div>
           )}
 
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={handlePageChange}
+          <LoadMore
+            hasMore={hasMore}
+            isLoading={repliesStatus === 'loading'}
+            onLoadMore={loadMore}
             totalCount={totalCount}
           />
         </div>

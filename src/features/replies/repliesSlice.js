@@ -4,7 +4,8 @@ import { repliesAPI } from './repliesAPI';
 const initialState = {
   replies: [],
   totalCount: 0,
-  currentPage: 1,
+  skip: 0,
+  limit: 10,
   totalPages: 1,
   status: 'idle',
   error: null,
@@ -23,9 +24,13 @@ export const createReply = createAsyncThunk(
 
 export const fetchReplies = createAsyncThunk(
   'replies/fetch',
-  async ({ linkId, page = 1, limit = 10 }, { rejectWithValue }) => {
+  async ({ linkId, append = false }, { getState, rejectWithValue }) => {
+    // Read skip from Redux state to avoid stale closure values from components
+    const state = getState();
+    const skip = state.replies?.skip ?? 0;
+    const limit = state.replies?.limit ?? 10;
     try {
-      return await repliesAPI.getReplies(linkId, page, limit);
+      return await repliesAPI.getReplies(linkId, skip, limit);
     } catch (err) {
       return rejectWithValue(err.message || 'Failed to fetch replies');
     }
@@ -39,14 +44,17 @@ const repliesSlice = createSlice({
     clearReplies: (state) => {
       state.replies = [];
       state.totalCount = 0;
-      state.currentPage = 1;
+      state.skip = 0;
       state.totalPages = 1;
     },
     clearError: (state) => {
       state.error = null;
     },
-    setPage: (state, action) => {
-      state.currentPage = action.payload;
+    setSkip: (state, action) => {
+      state.skip = action.payload;
+    },
+    incrementSkip: (state) => {
+      state.skip += state.limit;
     },
   },
   extraReducers: (builder) => {
@@ -73,11 +81,21 @@ const repliesSlice = createSlice({
       })
       .addCase(fetchReplies.fulfilled, (state, action) => {
         state.status = 'succeeded';
-        const { replies, totalCount, page, limit } = action.payload;
-        state.replies = Array.isArray(replies) ? replies : [];
-        state.totalCount = totalCount || 0;
-        state.currentPage = page || 1;
-        state.totalPages = Math.ceil((totalCount || 0) / (limit || 10));
+        // API returns wrapped response: { status: 'success', data: { replies: [...], totalCount: N } }
+        const { replies = [], totalCount = 0 } = action.payload || {};
+
+        const newReplies = Array.isArray(replies) ? replies : [];
+
+        if (state.skip === 0) {
+          // Initial load - replace
+          state.replies = newReplies;
+        } else {
+          // Load more - append
+          state.replies = [...state.replies, ...newReplies];
+        }
+
+        state.totalCount = totalCount;
+        state.totalPages = Math.ceil(state.totalCount / state.limit);
         state.error = null;
       })
       .addCase(fetchReplies.rejected, (state, action) => {
@@ -87,16 +105,18 @@ const repliesSlice = createSlice({
   },
 });
 
-export const { clearReplies, clearError: clearRepliesError, setPage } =
+export const { clearReplies, clearError: clearRepliesError, setSkip, incrementSkip } =
   repliesSlice.actions;
 
 export const selectReplies = (state) => state.replies.replies;
 export const selectRepliesStatus = (state) => state.replies.status;
 export const selectRepliesError = (state) => state.replies.error;
 export const selectRepliesPagination = (state) => ({
-  currentPage: state.replies.currentPage,
-  totalPages: state.replies.totalPages,
+  skip: state.replies.skip,
+  limit: state.replies.limit,
   totalCount: state.replies.totalCount,
+  totalPages: state.replies.totalPages,
+  hasMore: state.replies.replies.length < state.replies.totalCount,
 });
 
 export default repliesSlice.reducer;

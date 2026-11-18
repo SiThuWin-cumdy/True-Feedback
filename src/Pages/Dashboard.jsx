@@ -59,9 +59,9 @@ export const Dashboard = () => {
   const handleToggleLink = async (link, isActive) => {
     try {
       if (isActive) {
-        await dispatch(deactivateLink(link.id)).unwrap();
+        await dispatch(deactivateLink(link._id)).unwrap();
       } else {
-        await dispatch(activateLink(link.id)).unwrap();
+        await dispatch(activateLink(link._id)).unwrap();
       }
       dispatch(fetchActiveLinks());
       dispatch(fetchInactiveLinks());
@@ -83,10 +83,10 @@ export const Dashboard = () => {
             </p>
           </div>
           <Link
-            to="/links"
+            to="/"
             className="btn-primary px-4 py-2 text-sm"
           >
-            Browse Public Links
+            View Public Links
           </Link>
         </div>
 
@@ -172,11 +172,9 @@ export const Dashboard = () => {
             ) : (
               <ul className="divide-y divide-gray-100 dark:divide-gray-700">
                 {activeLinks.map((link) => (
-                  <li key={link.id} className="py-4 flex items-center justify-between">
+                  <li key={link._id} className="py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 font-medium">
-                        #{link.id}
-                      </div>
+                      
                       <div>
                         <h3 className="font-medium text-gray-900 dark:text-white">
                           {link.title}
@@ -184,14 +182,25 @@ export const Dashboard = () => {
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {link.slug}
                         </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                          Replies: {link.replyCount ?? 0}
+                        </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleToggleLink(link, true)}
-                      className="btn-warning text-xs px-3 py-1.5"
-                    >
-                      Deactivate
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={`/links/${link._id}/replies`}
+                        className="btn-secondary text-xs px-3 py-1.5"
+                      >
+                        View Replies
+                      </Link>
+                      <button
+                        onClick={() => handleToggleLink(link, true)}
+                        className="btn-warning text-xs px-3 py-1.5"
+                      >
+                        Deactivate
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -212,11 +221,9 @@ export const Dashboard = () => {
             ) : (
               <ul className="divide-y divide-gray-100 dark:divide-gray-700">
                 {inactiveLinks.map((link) => (
-                  <li key={link.id} className="py-4 flex items-center justify-between">
+                  <li key={link._id} className="py-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 font-medium">
-                        #{link.id}
-                      </div>
+                      
                       <div>
                         <h3 className="font-medium text-gray-900 dark:text-white">
                           {link.title}
@@ -224,14 +231,25 @@ export const Dashboard = () => {
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {link.slug}
                         </p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                          Replies: {link.replyCount ?? 0}
+                        </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleToggleLink(link, false)}
-                      className="btn-success text-xs px-3 py-1.5"
-                    >
-                      Activate
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={`/links/${link._id}/replies`}
+                        className="btn-secondary text-xs px-3 py-1.5"
+                      >
+                        View Replies
+                      </Link>
+                      <button
+                        onClick={() => handleToggleLink(link, false)}
+                        className="btn-success text-xs px-3 py-1.5"
+                      >
+                        Activate
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

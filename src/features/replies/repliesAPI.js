@@ -4,9 +4,9 @@ export const repliesAPI = {
   createReply: (linkId, replyData) =>
     axiosInstance.post(`/feedback-links/${linkId}/replies`, replyData),
 
-  getReplies: (linkId, page = 1, limit = 10) =>
+  getReplies: (linkId, skip = 0, limit = 10) =>
     axiosInstance.get(`/feedback-links/${linkId}/replies`, {
-      params: { page, limit },
+      params: { skip, limit },
       suppressToast: true,
     }),
 };

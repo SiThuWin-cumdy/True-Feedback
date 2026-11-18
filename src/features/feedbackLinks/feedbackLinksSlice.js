@@ -53,6 +53,17 @@ export const fetchLinkById = createAsyncThunk(
   }
 );
 
+export const fetchLinkBySlug = createAsyncThunk(
+  'feedbackLinks/fetchBySlug',
+  async (slug, { rejectWithValue }) => {
+    try {
+      return await feedbackLinksAPI.getBySlug(slug);
+    } catch (err) {
+      return rejectWithValue(err.message || 'Failed to fetch feedback link');
+    }
+  }
+);
+
 export const activateLink = createAsyncThunk(
   'feedbackLinks/activate',
   async (id, { rejectWithValue }) => {
@@ -143,16 +154,29 @@ const feedbackLinksSlice = createSlice({
         state.status = 'failed';
         state.error = action.payload || action.error.message;
       })
+      .addCase(fetchLinkBySlug.pending, (state) => {
+        state.status = 'loading';
+        state.error = null;
+      })
+      .addCase(fetchLinkBySlug.fulfilled, (state, action) => {
+        state.status = 'succeeded';
+        state.currentLink = action.payload;
+        state.error = null;
+      })
+      .addCase(fetchLinkBySlug.rejected, (state, action) => {
+        state.status = 'failed';
+        state.error = action.payload || action.error.message;
+      })
       .addCase(activateLink.fulfilled, (state, action) => {
         state.status = 'succeeded';
         const updatedLink = action.payload;
         state.currentLink = updatedLink;
         state.activeLinks = state.activeLinks.filter(
-          (l) => l.id !== updatedLink.id
+          (l) => l._id !== updatedLink._id
         );
         state.activeLinks.push(updatedLink);
         state.inactiveLinks = state.inactiveLinks.filter(
-          (l) => l.id !== updatedLink.id
+          (l) => l._id !== updatedLink._id
         );
         state.error = null;
       })
@@ -165,11 +189,11 @@ const feedbackLinksSlice = createSlice({
         const updatedLink = action.payload;
         state.currentLink = updatedLink;
         state.inactiveLinks = state.inactiveLinks.filter(
-          (l) => l.id !== updatedLink.id
+          (l) => l._id !== updatedLink._id
         );
         state.inactiveLinks.push(updatedLink);
         state.activeLinks = state.activeLinks.filter(
-          (l) => l.id !== updatedLink.id
+          (l) => l._id !== updatedLink._id
         );
         state.error = null;
       })
@@ -180,8 +204,11 @@ const feedbackLinksSlice = createSlice({
   },
 });
 
-export const { clearCurrentLink, clearError: clearLinksError, setStatus: setLinksStatus } =
-  feedbackLinksSlice.actions;
+export const {
+  clearCurrentLink,
+  clearError: clearLinksError,
+  setStatus: setLinksStatus,
+} = feedbackLinksSlice.actions;
 
 export const selectActiveLinks = (state) => state.feedbackLinks.activeLinks;
 export const selectInactiveLinks = (state) => state.feedbackLinks.inactiveLinks;

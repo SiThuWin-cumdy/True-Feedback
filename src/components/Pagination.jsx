@@ -1,60 +1,51 @@
-export const Pagination = ({
-  currentPage,
-  totalPages,
-  onPageChange,
+import { useState } from 'react';
+
+export const LoadMore = ({
+  hasMore,
+  isLoading,
+  onLoadMore,
   totalCount,
 }) => {
-  if (totalPages <= 1) return null;
-
-  const pages = [];
-  const maxVisible = 5;
-  let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
-  let end = Math.min(totalPages, start + maxVisible - 1);
-  if (end - start < maxVisible - 1) {
-    start = Math.max(1, end - maxVisible + 1);
-  }
-
-  for (let i = start; i <= end; i++) {
-    pages.push(i);
-  }
+  if (!hasMore) return null;
 
   return (
-    <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-      <div className="text-sm text-gray-600 dark:text-gray-400">
-        Showing {totalCount} {totalCount === 1 ? 'reply' : 'replies'}
-      </div>
-
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1}
-          className="btn-secondary px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Previous
-        </button>
-
-        {pages.map((page) => (
-          <button
-            key={page}
-            onClick={() => onPageChange(page)}
-            className={`w-8 h-8 text-sm rounded-md transition-colors ${
-              page === currentPage
-                ? 'bg-indigo-600 text-white dark:bg-indigo-500'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600'
-            }`}
-          >
-            {page}
-          </button>
-        ))}
-
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages}
-          className="btn-secondary px-3 py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Next
-        </button>
-      </div>
+    <div className="flex justify-center mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+      <button
+        onClick={onLoadMore}
+        disabled={!hasMore || isLoading}
+        className="btn-secondary px-8 py-2.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+      >
+        {isLoading ? (
+          <>
+            <svg
+              className="animate-spin -ml-1 mr-2 h-5 w-5 text-white"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            Loading...
+          </>
+        ) : (
+          <>
+            <span>Load More</span>
+            <span className="text-xs opacity-75">({totalCount} total)</span>
+          </>
+        )}
+      </button>
     </div>
   );
 };
