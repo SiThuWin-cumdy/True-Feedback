@@ -8,9 +8,9 @@ import {
   selectLinksStatus,
   selectLinksError,
 } from '../features/feedbackLinks/feedbackLinksSlice';
+import axiosInstance from '../api/axiosInstance';
 import { selectUser } from '../features/auth/authSlice';
 import { LoadMore } from '../components/Pagination';
-import { getAISuggestions } from '../lib/ai';
 import {
   createReply,
   selectReplies,
@@ -35,7 +35,27 @@ export const PublicLink = () => {
   // Fetch link details when slug changes
   useEffect(() => {
     if (!currentLink || currentLink.slug !== slug) {
-      dispatch(fetchLinkBySlug(slug));
+      dispatch(fetchLinkBySlug(slug)).then((linkData) => {
+        const title = linkData?.payload?.title || '';
+        const description = linkData?.payload?.description || '';
+        debugger;
+        if (title || description) {
+          axiosInstance.post('/feedback-suggestions', {
+            topicTitle: title,
+            topicDescription: description,
+          })
+            .then((response) => {
+              const suggestions = response || [];
+              setAiSuggestions(suggestions);
+            })
+            .catch((error) => {
+              console.error('AI suggestions error:', error);
+              setAiSuggestions([]);
+            });
+        }
+      }).catch((error) => {
+        console.error('Fetch link error:', error);
+      });
     }
   }, [dispatch, slug]);
 
@@ -61,21 +81,12 @@ export const PublicLink = () => {
     selectRepliesPagination
   );
 
-  // Show AI suggestions on mount (before submit)
-  useEffect(() => {
-    if (!currentLink || currentLink.slug !== slug) return;
-    // Use static suggestions since no API key configured, or call AI if key available
-    setAiSuggestions([
-      'Consider adding a rating scale to your feedback',
-      'Suggest specific features that could be improved',
-      'Recommend sharing the link with relevant team members'
-    ]);
-  }, [currentLink, slug]);
+
 
   // Only fetch replies if the logged-in user is the owner of the link
   const isOwner = user && currentLink && currentLink.user === user._id;
 
-  useEffect(() => {
+  useEffect(() => { 
     // Reset replies state when link changes
     dispatch(clearReplies());
     dispatch(setSkip(0));
@@ -96,7 +107,7 @@ export const PublicLink = () => {
     }
 
     // Use selected suggestion if any, otherwise use the textarea value
-    const message = aiSuggestions.length > 0 ? aiSuggestions[0] : data.message;
+    const message = selectedSuggestion || data.message;
 
     try {
       await dispatch(
@@ -259,30 +270,41 @@ export const PublicLink = () => {
                 >
                   {isSubmitting ? 'Sending...' : 'Send Feedback'}
                 </button>
+
+                {/* AI Suggestions - shown BEFORE submit */}
+                {aiSuggestions.length > 0 && (
+                  <div className="card border-indigo-100 dark-border-indigo-900/30 mb-8">
+                    <div className="p-4">
+                      <h4 className="text-indigo-600 dark:text-indigo-300 font-semibold mb-3">
+                        💡 Get AI Suggestions for Your Feedback
+                      </h4>
+                      <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+                        Click on any suggestion below to auto-fill your message:
+                      </p>
+                      <div className="grid grid-cols-1 gap-3">
+                        {aiSuggestions.map((suggestion, index) => (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              const textArea = document.getElementById('message');
+                              if (textArea) {
+                                textArea.value = suggestion;
+                              }
+                            }}
+                            className="w-full p-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 cursor-pointer transition-all text-sm text-indigo-700 dark:text-indigo-300"
+                          >
+                            <span className="font-medium">{index + 1}.</span> {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reply Form - displays after AI suggestions section */}
+
               </form>
-            </div>
-
-            {/* AI Suggestions - shown BEFORE submit */}
-            {aiSuggestions.length > 0 && (
-              <div className="card border-indigo-100 dark-border-indigo-900/30 mb-8">
-                <div className="p-4">
-                  <h4 className="text-indigo-600 dark:text-indigo-300 mb-3">
-                    💡 AI Suggested Improvements
-                  </h4>
-                  <p className="text-indigo-600 dark:text-indigo-300 text-sm">
-                    Based on your feedback, here are 3 suggested improvements:
-                  </p>
-                  <ol>
-                    {aiSuggestions.map((suggestion, index) => (
-                      <li key={index} style={{ fontSize: '0.875rem', lineHeight: '1.5' }}>
-                        {suggestion}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              </div>
-            )}
-
+            </div> 
             {/* Replies List - only visible to owner */}
             {isOwner ? (
               <div className="card">

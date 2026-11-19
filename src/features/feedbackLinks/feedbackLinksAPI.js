@@ -14,4 +14,10 @@ export const feedbackLinksAPI = {
   activate: (id) => axiosInstance.patch(`/feedback-links/${id}/activate`),
 
   deactivate: (id) => axiosInstance.patch(`/feedback-links/${id}/deactivate`),
+
+  getFeedbackSuggestions: (topicTitle, topicDescription) =>
+    axiosInstance.post('/feedback-suggestions', {
+      topicTitle,
+      topicDescription,
+    }),
 };
