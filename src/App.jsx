@@ -31,7 +31,7 @@ function App() {
   }, [authStatus, user]);
 
   return (
-    <Router>
+    <Router basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
       <div className="min-h-screen bg-paper text-ink">
         <Toaster
           position="top-center"

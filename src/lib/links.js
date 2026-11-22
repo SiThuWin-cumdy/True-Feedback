@@ -1,7 +1,11 @@
 import toast from 'react-hot-toast';
 
-export const publicHost = () => window.location.host;
-export const publicUrl = (slug) => `${window.location.origin}/${slug}`;
+// Host plus base path, without a trailing slash; callers append `/${slug}`.
+export const publicHost = () =>
+  `${window.location.host}${import.meta.env.BASE_URL.replace(/\/$/, '')}`;
+// BASE_URL always ends in '/' ('/' locally, '/<repo>/' on GitHub Pages).
+export const publicUrl = (slug) =>
+  `${window.location.origin}${import.meta.env.BASE_URL}${slug}`;
 
 export const copyLink = async (slug) => {
   try {
