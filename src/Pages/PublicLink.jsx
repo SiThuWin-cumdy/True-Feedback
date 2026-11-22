@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
   fetchLinkBySlug,
@@ -10,58 +10,62 @@ import {
 } from '../features/feedbackLinks/feedbackLinksSlice';
 import axiosInstance from '../api/axiosInstance';
 import { selectUser } from '../features/auth/authSlice';
-import { LoadMore } from '../components/Pagination';
 import {
   createReply,
   selectReplies,
   selectRepliesStatus,
-  selectRepliesError,
   selectRepliesPagination,
   incrementSkip,
   setSkip,
   clearReplies,
   fetchReplies,
 } from '../features/replies/repliesSlice';
+import { ReplyList } from '../components/Replies';
+import { PageLoader, PageMessage, Spinner } from '../components/PageState';
+
+// Shown after sending: the note drops into the box's slot.
+const SentNote = ({ message, name, onWriteAnother }) => (
+  <section className="mt-10 max-w-xl" aria-live="polite">
+    <div className="relative h-40 overflow-hidden" aria-hidden="true">
+      <div className="slip-drop absolute inset-x-6 sm:inset-x-10 top-3 bottom-0 rounded-sm bg-note px-5 py-4 text-note-ink">
+        <p className="font-voice text-[16px] leading-relaxed line-clamp-4 whitespace-pre-line break-words">
+          {message}
+        </p>
+      </div>
+    </div>
+    <div className="h-3 rounded-full bg-ink" aria-hidden="true" />
+
+    <div className="fade-in-late mt-8">
+      <h2 className="text-2xl font-extrabold tracking-[-0.02em] text-ink">Feedback sent</h2>
+      <p className="mt-2 text-[17px] text-muted leading-relaxed">
+        {name
+          ? `Sent with your name, ${name}. Only the owner of this page can read it.`
+          : "Sent anonymously. The owner can read it, but they can't see who wrote it."}
+      </p>
+      <button onClick={onWriteAnother} className="btn-secondary mt-6">
+        Write another
+      </button>
+    </div>
+  </section>
+);
 
 export const PublicLink = () => {
   const { slug } = useParams();
   const dispatch = useDispatch();
 
   const [replyError, setReplyError] = useState('');
+  const [sent, setSent] = useState(null);
 
   // AI Suggestions state - shown BEFORE submit
   const [aiSuggestions, setAiSuggestions] = useState([]);
-
-  // Fetch link details when slug changes
-  useEffect(() => {
-    if (!currentLink || currentLink.slug !== slug) {
-      dispatch(fetchLinkBySlug(slug)).then((linkData) => {
-        const title = linkData?.payload?.title || '';
-        const description = linkData?.payload?.description || '';
-        debugger;
-        if (title || description) {
-          axiosInstance.post('/feedback-suggestions', {
-            topicTitle: title,
-            topicDescription: description,
-          })
-            .then((response) => {
-              const suggestions = response || [];
-              setAiSuggestions(suggestions);
-            })
-            .catch((error) => {
-              console.error('AI suggestions error:', error);
-              setAiSuggestions([]);
-            });
-        }
-      }).catch((error) => {
-        console.error('Fetch link error:', error);
-      });
-    }
-  }, [dispatch, slug]);
+  const [isSuggestingMore, setIsSuggestingMore] = useState(false);
 
   const {
     register,
     handleSubmit,
+    setValue,
+    setFocus,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm({
     defaultValues: {
@@ -76,17 +80,24 @@ export const PublicLink = () => {
   const user = useSelector(selectUser);
   const replies = useSelector(selectReplies);
   const repliesStatus = useSelector(selectRepliesStatus);
-  const repliesError = useSelector(selectRepliesError);
-  const { totalCount, hasMore } = useSelector(
-    selectRepliesPagination
-  );
+  const { totalCount, hasMore } = useSelector(selectRepliesPagination);
 
+  // Link loaded in the store actually belongs to the current URL
+  const isCurrentLinkLoaded = currentLink?.slug === slug;
 
+  // Fetch link details when slug changes
+  useEffect(() => {
+    if (!isCurrentLinkLoaded) {
+      dispatch(fetchLinkBySlug(slug))
+        .unwrap()
+        .catch((err) => console.error('Fetch link error:', err));
+    }
+  }, [dispatch, slug, isCurrentLinkLoaded]);
 
   // Only fetch replies if the logged-in user is the owner of the link
   const isOwner = user && currentLink && currentLink.user === user._id;
 
-  useEffect(() => { 
+  useEffect(() => {
     // Reset replies state when link changes
     dispatch(clearReplies());
     dispatch(setSkip(0));
@@ -96,18 +107,64 @@ export const PublicLink = () => {
     }
   }, [dispatch, isOwner, currentLink?._id]);
 
+  const linkId = isCurrentLinkLoaded ? currentLink._id : null;
+  const linkTitle = isCurrentLinkLoaded ? currentLink.title || '' : '';
+  const linkDescription = isCurrentLinkLoaded ? currentLink.description || '' : '';
+
+  // Tracks the latest suggestion request so stale responses are discarded
+  const suggestionRequestRef = useRef(0);
+
+  const fetchAiSuggestions = useCallback(
+    async ({ append }) => {
+      if (!linkTitle && !linkDescription) return;
+
+      const requestId = ++suggestionRequestRef.current;
+      setIsSuggestingMore(true);
+      try {
+        const response = await axiosInstance.post('/feedback-suggestions', {
+          topicTitle: linkTitle,
+          topicDescription: linkDescription,
+        });
+        if (requestId !== suggestionRequestRef.current) return;
+
+        const suggestions = Array.isArray(response) ? response : [];
+        setAiSuggestions((prev) =>
+          append ? [...new Set([...prev, ...suggestions])] : suggestions
+        );
+      } catch (error) {
+        // Keep existing suggestions so the user can retry
+        console.error('AI suggestions error:', error);
+      } finally {
+        if (requestId === suggestionRequestRef.current) {
+          setIsSuggestingMore(false);
+        }
+      }
+    },
+    [linkTitle, linkDescription]
+  );
+
+  // Reset and refetch suggestions whenever the link (or its topic) changes
+  useEffect(() => {
+    suggestionRequestRef.current += 1; // invalidate in-flight requests
+    setAiSuggestions([]);
+    setIsSuggestingMore(false);
+    setSent(null);
+    if (linkId) {
+      fetchAiSuggestions({ append: false });
+    }
+  }, [linkId, fetchAiSuggestions]);
+
   const isActive = currentLink?.is_active !== false;
 
   const onSubmit = async (data) => {
     setReplyError('');
 
     if (!isActive) {
-      setReplyError('This feedback link is not accepting replies.');
+      setReplyError('This link is closed and is not accepting feedback.');
       return;
     }
 
-    // Use selected suggestion if any, otherwise use the textarea value
-    const message = selectedSuggestion || data.message;
+    const message = data.message;
 
     try {
       await dispatch(
@@ -124,11 +181,23 @@ export const PublicLink = () => {
         dispatch(fetchReplies({ linkId: currentLink._id, skip: 0, limit: 10 }));
       }
 
+      setSent({ message, name: data.user.trim() });
+      reset();
       // Reset AI suggestions after submit
       setAiSuggestions([]);
     } catch (err) {
-      setReplyError(err.message || 'Failed to send feedback');
+      setReplyError(err.message || 'Your feedback was not sent. Check your connection and try again.');
     }
+  };
+
+  const writeAnother = () => {
+    setSent(null);
+    fetchAiSuggestions({ append: false });
+  };
+
+  const applySuggestion = (suggestion) => {
+    setValue('message', suggestion, { shouldValidate: true, shouldDirty: true });
+    setFocus('message');
   };
 
   const loadMore = () => {
@@ -136,256 +205,171 @@ export const PublicLink = () => {
     dispatch(fetchReplies({ linkId: currentLink?._id }));
   };
 
-  if (linksStatus === 'loading' && !currentLink) {
+  if (!isCurrentLinkLoaded && linksStatus === 'loading') {
+    return <PageLoader />;
+  }
+
+  if (!isCurrentLinkLoaded || linksError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
+      <PageMessage title="This link doesn't exist">
+        Check the address for typos. If it came from someone else, they may have removed it.
+      </PageMessage>
     );
   }
 
-  if (!currentLink || linksError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="card text-center max-w-md">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-            Link Not Found
-          </h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
-            The feedback link you're looking for doesn't exist or is not active.
-          </p>
-          <Link to="/" className="mt-6 inline-block btn-primary px-6 py-2">
-            Go Home
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const showSuggestions = aiSuggestions.length > 0 || isSuggestingMore;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <nav className="sticky top-0 z-50 border-b border-gray-200 bg-white/80 backdrop-blur-md dark:border-gray-700 dark:bg-gray-900/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link
-              to="/"
-              className="flex items-center gap-2"
-            >
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold dark:bg-indigo-500">
-                TF
-              </div>
-              <span className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                TrueFeedback
-              </span>
-            </Link>
-            <a
-              href={`/${currentLink.slug}`}
-              className="text-sm text-gray-600 dark:text-gray-400 font-mono"
-            >
-              /{currentLink.slug}
-            </a>
-          </div>
-        </div>
-      </nav>
+    <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
+      <header className="max-w-3xl">
+        <h1 className="text-[36px] sm:text-[52px] leading-[1.04] font-extrabold tracking-[-0.035em] text-ink text-balance">
+          {currentLink.title}
+        </h1>
+        {currentLink.description && (
+          <p className="mt-4 text-lg sm:text-xl text-muted leading-relaxed max-w-[60ch]">
+            {currentLink.description}
+          </p>
+        )}
+      </header>
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="card mb-8">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`badge ${isActive ? 'badge-active' : 'badge-inactive'}`}>
-                  {isActive ? 'Active' : 'Inactive'}
-                </span>
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  Slug: {currentLink.slug}
-                </span>
-              </div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2 text-balance">
-                {currentLink.title}
-              </h1>
-              {currentLink.description && (
-                <p className="text-gray-600 dark:text-gray-400 text-lg">
-                  {currentLink.description}
-                </p>
-              )}
-              {isOwner && (
-                <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-2 font-medium">
-                  You are the owner of this link
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+      {isOwner && (
+        <p className="mt-6 inline-block rounded-md bg-accent-soft px-3.5 py-2 text-sm font-medium text-accent">
+          This is your link. Replies people send appear at the bottom of this page.
+        </p>
+      )}
 
-        {isActive ? (
-          <>
-            {/* Reply Form */}
-            <div className="card mb-8">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                Leave Your Feedback
-              </h2>
-              {replyError && (
-                <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-100 dark:border-red-800">
-                  {replyError}
-                </div>
-              )}
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-                <div>
-                  <label className="label" htmlFor="user">
-                    Your Name (optional)
-                  </label>
-                  <input
-                    id="user"
-                    className={`input ${errors.user ? 'border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-500 dark:focus:ring-red-500 dark:focus:border-red-500' : ''}`}
-                    placeholder="Anonymous"
-                    {...register('user')}
-                  />
-                  {errors.user && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      Invalid name
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="label" htmlFor="message">
-                    Your Message
-                  </label>
-                  <textarea
-                    id="message"
-                    rows={4}
-                    className={`input ${errors.message ? 'border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-500 dark:focus:ring-red-500 dark:focus:border-red-500' : ''}`}
-                    placeholder="Share your feedback..."
-                    {...register('message', { required: 'Message is required' })}
-                  />
-                  {errors.message && (
-                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                      {errors.message.message}
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="btn-primary w-full py-3"
-                >
-                  {isSubmitting ? 'Sending...' : 'Send Feedback'}
-                </button>
-
-                {/* AI Suggestions - shown BEFORE submit */}
-                {aiSuggestions.length > 0 && (
-                  <div className="card border-indigo-100 dark-border-indigo-900/30 mb-8">
-                    <div className="p-4">
-                      <h4 className="text-indigo-600 dark:text-indigo-300 font-semibold mb-3">
-                        💡 Get AI Suggestions for Your Feedback
-                      </h4>
-                      <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                        Click on any suggestion below to auto-fill your message:
-                      </p>
-                      <div className="grid grid-cols-1 gap-3">
-                        {aiSuggestions.map((suggestion, index) => (
-                          <button
-                            key={index}
-                            onClick={() => {
-                              const textArea = document.getElementById('message');
-                              if (textArea) {
-                                textArea.value = suggestion;
-                              }
-                            }}
-                            className="w-full p-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 cursor-pointer transition-all text-sm text-indigo-700 dark:text-indigo-300"
-                          >
-                            <span className="font-medium">{index + 1}.</span> {suggestion}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Reply Form - displays after AI suggestions section */}
-
-              </form>
-            </div> 
-            {/* Replies List - only visible to owner */}
-            {isOwner ? (
-              <div className="card">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-xs font-bold">
-                    R
-                  </span>
-                  Replies ({replies.length})
-                </h2>
-
-                {repliesStatus === 'loading' ? (
-                  <div className="flex flex-col items-center justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2"></div>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Loading replies...</p>
-                  </div>
-                ) : replies.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                    No replies yet. Be the first to share your feedback!
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {replies.map((reply) => (
-                      <div key={reply._id} className="py-5">
-                        <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 text-xs font-medium">
-                            {(reply.user?.username || reply.user || 'Anonymous')[0].toUpperCase()}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-sm text-gray-900 dark:text-white">
-                              {reply.message}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {reply.user?.username || reply.user || 'Anonymous'} •{' '}
-                              {new Date(reply.created_at || reply.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <LoadMore
-                  hasMore={hasMore}
-                  isLoading={repliesStatus === 'loading'}
-                  onLoadMore={loadMore}
-                  totalCount={totalCount}
-                />
-              </div>
-            ) : (
-              <div className="card border-blue-100 dark-border-blue-900/30">
-                <div className="p-6 text-center">
-                  <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600 dark:text-blue-400">
-                    👁️
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                    Replies are private
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400">
-                    Only the link owner can view reply messages. Sign in as the owner to see replies.
-                  </p>
-                </div>
+      {!isActive ? (
+        <p className="mt-10 max-w-xl rounded-lg bg-sunken px-5 py-4 text-muted">
+          This link is closed, so it isn't accepting feedback right now.
+        </p>
+      ) : sent ? (
+        <SentNote message={sent.message} name={sent.name} onWriteAnother={writeAnother} />
+      ) : (
+        <div
+          className={`mt-10 grid gap-10 ${
+            showSuggestions ? 'lg:grid-cols-[minmax(0,1fr)_19rem]' : 'max-w-3xl'
+          }`}
+        >
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
+            {replyError && (
+              <div className="alert mb-5" role="alert">
+                {replyError}
               </div>
             )}
-          </>
-        ) : (
-          <div className="card border-amber-100 dark-border-amber-900/30">
-            <div className="p-6 text-center">
-              <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-amber-600 dark:text-amber-400">
-                ⏸️
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                Feedback Link is Inactive
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
-                This feedback link is currently not accepting replies.
+
+            <label className="label" htmlFor="message">
+              Your feedback
+            </label>
+            <textarea
+              id="message"
+              rows={8}
+              className="block w-full resize-y rounded-lg border border-line bg-surface px-5 py-4 font-voice text-[18px] leading-[1.7] text-ink placeholder:text-muted/60 transition-[border-color,box-shadow] focus:outline-none focus:border-accent focus:ring-3 focus:ring-accent/20 aria-[invalid=true]:border-danger"
+              placeholder="Be specific: what happened, how it landed, what you'd change."
+              aria-invalid={!!errors.message}
+              aria-describedby={errors.message ? 'message-error' : undefined}
+              {...register('message', {
+                validate: (v) => v.trim() !== '' || 'Write something before sending.',
+              })}
+            />
+            {errors.message && (
+              <p id="message-error" className="field-error">
+                {errors.message.message}
               </p>
+            )}
+
+            <div className="mt-6 flex flex-col sm:flex-row sm:items-start gap-4">
+              <div className="flex-1">
+                <label className="label" htmlFor="user">
+                  Name <span className="font-normal text-muted">(optional)</span>
+                </label>
+                <input
+                  id="user"
+                  className="input"
+                  autoComplete="off"
+                  aria-describedby="user-hint"
+                  {...register('user')}
+                />
+                <p id="user-hint" className="hint">
+                  Leave this blank to stay anonymous.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="btn-primary h-11 px-6 sm:mt-[26px]"
+              >
+                {isSubmitting && <Spinner className="w-4 h-4 border-on-accent/30 border-t-on-accent" />}
+                {isSubmitting ? 'Sending' : 'Send feedback'}
+              </button>
             </div>
+          </form>
+
+          {showSuggestions && (
+            <aside aria-labelledby="prompts-heading">
+              <h2 id="prompts-heading" className="text-[15px] font-bold text-ink">
+                Need a starting point?
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Pick a prompt to start from, then make it your own.
+              </p>
+
+              <ul className="mt-4 space-y-2.5">
+                {aiSuggestions.map((suggestion, index) => (
+                  <li key={`${index}-${suggestion}`}>
+                    <button
+                      type="button"
+                      onClick={() => applySuggestion(suggestion)}
+                      className="w-full rounded-sm bg-note px-4 py-3 text-left font-voice text-[15px] leading-snug text-note-ink transition-colors hover:bg-note-hover cursor-pointer"
+                    >
+                      {suggestion}
+                    </button>
+                  </li>
+                ))}
+                {isSuggestingMore &&
+                  [0, 1, 2].slice(aiSuggestions.length ? 2 : 0).map((i) => (
+                    <li
+                      key={`placeholder-${i}`}
+                      className="h-[60px] rounded-sm bg-note/35 animate-pulse"
+                      aria-hidden="true"
+                    />
+                  ))}
+              </ul>
+
+              {aiSuggestions.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isSuggestingMore}
+                  onClick={() => fetchAiSuggestions({ append: true })}
+                  className="btn-ghost btn-sm mt-3 -ml-3"
+                >
+                  {isSuggestingMore ? 'Finding more prompts' : 'More prompts'}
+                </button>
+              )}
+            </aside>
+          )}
+        </div>
+      )}
+
+      {isOwner && (
+        <section className="mt-20 max-w-3xl" aria-labelledby="owner-replies-heading">
+          <h2
+            id="owner-replies-heading"
+            className="border-b border-ink pb-3 text-lg font-extrabold tracking-[-0.01em] text-ink"
+          >
+            Replies{' '}
+            <span className="font-semibold text-muted tabular-nums">{totalCount ?? replies.length}</span>
+          </h2>
+          <div className="mt-4">
+            <ReplyList
+              replies={replies}
+              status={repliesStatus}
+              hasMore={hasMore}
+              totalCount={totalCount}
+              onLoadMore={loadMore}
+            />
           </div>
-        )}
-      </div>
-    </div>
+        </section>
+      )}
+    </main>
   );
 };

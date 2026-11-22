@@ -32,8 +32,22 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <Toaster position="top-right" />
+      <div className="min-h-screen bg-paper text-ink">
+        <Toaster
+          position="top-center"
+          toastOptions={{
+            style: {
+              background: 'var(--surface)',
+              color: 'var(--ink)',
+              border: '1px solid var(--line)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              boxShadow: 'none',
+            },
+            success: { iconTheme: { primary: 'var(--accent)', secondary: 'var(--surface)' } },
+            error: { iconTheme: { primary: 'var(--danger)', secondary: 'var(--surface)' } },
+          }}
+        />
         <Navbar />
 
         <Routes>

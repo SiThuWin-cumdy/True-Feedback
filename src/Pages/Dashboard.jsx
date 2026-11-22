@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { Copy, ExternalLink } from 'lucide-react';
 import {
   createFeedbackLink,
   fetchActiveLinks,
@@ -12,18 +13,101 @@ import {
   selectLinksStatus,
   selectLinksError,
 } from '../features/feedbackLinks/feedbackLinksSlice';
+import { copyLink, publicHost, slugify } from '../lib/links';
+
+const emptyLink = { title: '', description: '', slug: '' };
+
+const LinkRow = ({ link, isActive, pending, onToggle }) => {
+  const count = link.replyCount ?? 0;
+
+  return (
+    <li className="py-5 grid gap-x-6 gap-y-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_auto] sm:items-center">
+      <div className="min-w-0">
+        <Link
+          to={`/links/${link._id}/replies`}
+          className={`text-[17px] font-bold tracking-[-0.01em] hover:underline underline-offset-4 decoration-2 decoration-line rounded-sm ${
+            isActive ? 'text-ink' : 'text-muted'
+          }`}
+        >
+          {link.title}
+        </Link>
+        <a
+          href={`/${link.slug}`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 flex items-center gap-1.5 w-fit max-w-full text-sm text-muted hover:text-accent rounded-sm"
+        >
+          <span className="truncate">
+            {publicHost()}/{link.slug}
+          </span>
+          <ExternalLink className="w-3.5 h-3.5 shrink-0" aria-label="opens in a new tab" />
+        </a>
+      </div>
+
+      <Link
+        to={`/links/${link._id}/replies`}
+        className="flex items-baseline gap-1.5 tabular-nums rounded-sm w-fit"
+        aria-label={`${count} ${count === 1 ? 'reply' : 'replies'} to ${link.title}`}
+      >
+        <span className="text-xl font-extrabold text-ink">{count}</span>
+        <span className="text-sm text-muted">{count === 1 ? 'reply' : 'replies'}</span>
+      </Link>
+
+      <div className="flex items-center gap-2">
+        {isActive && (
+          <button onClick={() => copyLink(link.slug)} className="btn-secondary btn-sm">
+            <Copy className="w-3.5 h-3.5" />
+            Copy link
+          </button>
+        )}
+        <button
+          onClick={() => onToggle(link, isActive)}
+          disabled={pending}
+          className={isActive ? 'btn-ghost btn-sm' : 'btn-secondary btn-sm'}
+          aria-label={`${isActive ? 'Close' : 'Reopen'} ${link.title}`}
+        >
+          {pending ? 'Saving' : isActive ? 'Close' : 'Reopen'}
+        </button>
+      </div>
+    </li>
+  );
+};
+
+const LinkSection = ({ title, description, links, isActive, pendingId, onToggle, empty }) => (
+  <section className="mt-12">
+    <div className="flex items-baseline justify-between gap-4 border-b border-ink pb-3">
+      <h2 className="text-lg font-extrabold tracking-[-0.01em] text-ink">
+        {title}{' '}
+        <span className="font-semibold text-muted tabular-nums">{links.length}</span>
+      </h2>
+      <p className="hidden sm:block text-sm text-muted">{description}</p>
+    </div>
+    {links.length === 0 ? (
+      <p className="py-8 text-muted">{empty}</p>
+    ) : (
+      <ul className="divide-y divide-line">
+        {links.map((link) => (
+          <LinkRow
+            key={link._id}
+            link={link}
+            isActive={isActive}
+            pending={pendingId === link._id}
+            onToggle={onToggle}
+          />
+        ))}
+      </ul>
+    )}
+  </section>
+);
 
 export const Dashboard = () => {
-  const [newLink, setNewLink] = useState({
-    title: '',
-    description: '',
-    slug: '',
-  });
+  const [newLink, setNewLink] = useState(emptyLink);
+  const [slugEdited, setSlugEdited] = useState(false);
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [pendingId, setPendingId] = useState(null);
 
   const dispatch = useDispatch();
-  const navigate = useNavigate();
   const activeLinks = useSelector(selectActiveLinks);
   const inactiveLinks = useSelector(selectInactiveLinks);
   const status = useSelector(selectLinksStatus);
@@ -35,8 +119,18 @@ export const Dashboard = () => {
   }, [dispatch]);
 
   const handleChange = (e) => {
-    setNewLink({ ...newLink, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
     setError('');
+    if (name === 'slug') {
+      setSlugEdited(value !== '');
+      // Light cleanup while typing; don't trim hyphens or "my-" can't become "my-talk".
+      const slug = value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      setNewLink((prev) => ({ ...prev, slug }));
+    } else if (name === 'title' && !slugEdited) {
+      setNewLink((prev) => ({ ...prev, title: value, slug: slugify(value) }));
+    } else {
+      setNewLink((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleCreateLink = async (e) => {
@@ -46,17 +140,19 @@ export const Dashboard = () => {
 
     try {
       await dispatch(createFeedbackLink(newLink)).unwrap();
-      setNewLink({ title: '', description: '', slug: '' });
+      setNewLink(emptyLink);
+      setSlugEdited(false);
       dispatch(fetchActiveLinks());
       dispatch(fetchInactiveLinks());
     } catch (err) {
-      setError(err.message || 'Failed to create feedback link');
+      setError(err.message || 'The link was not created. Try a different address.');
     } finally {
       setCreating(false);
     }
   };
 
   const handleToggleLink = async (link, isActive) => {
+    setPendingId(link._id);
     try {
       if (isActive) {
         await dispatch(deactivateLink(link._id)).unwrap();
@@ -66,203 +162,119 @@ export const Dashboard = () => {
       dispatch(fetchActiveLinks());
       dispatch(fetchInactiveLinks());
     } catch (err) {
-      setError(err.message || 'Failed to update link status');
+      setError(err.message || 'The link status was not updated. Try again.');
+    } finally {
+      setPendingId(null);
     }
   };
 
+  const busy = creating || status === 'loading';
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+    <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-14">
+      <header className="max-w-2xl">
+        <h1 className="text-[34px] sm:text-[42px] leading-[1.05] font-extrabold tracking-[-0.03em] text-ink">
+          Feedback links
+        </h1>
+        <p className="mt-3 text-[17px] text-muted leading-relaxed">
+          Each link opens a page where anyone can send you feedback without signing in. Replies
+          are only visible to you.
+        </p>
+      </header>
+
+      {(linksError || error) && (
+        <div className="alert mt-8" role="alert">
+          {error || linksError}
+        </div>
+      )}
+
+      <section className="card mt-10" aria-labelledby="new-link-heading">
+        <h2 id="new-link-heading" className="text-lg font-extrabold tracking-[-0.01em] text-ink">
+          New link
+        </h2>
+        <form onSubmit={handleCreateLink} className="mt-5 grid gap-5 md:grid-cols-2">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-              Dashboard
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Manage your feedback links
-            </p>
+            <label className="label" htmlFor="title">
+              What do you want feedback on?
+            </label>
+            <input
+              type="text"
+              id="title"
+              name="title"
+              className="input"
+              placeholder="My talk at the design meetup"
+              value={newLink.title}
+              onChange={handleChange}
+              required
+            />
           </div>
-          <Link
-            to="/"
-            className="btn-primary px-4 py-2 text-sm"
-          >
-            View Public Links
-          </Link>
-        </div>
 
-        {linksError && (
-          <div className="mb-6 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-100 dark:border-red-800">
-            {linksError}
-          </div>
-        )}
-
-        <div className="card mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-            Create New Feedback Link
-          </h2>
-          <form onSubmit={handleCreateLink} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="label" htmlFor="title">
-                  Link Title
-                </label>
-                <input
-                  type="text"
-                  id="title"
-                  name="title"
-                  className="input"
-                  placeholder="e.g., Product Feedback"
-                  value={newLink.title}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div>
-                <label className="label" htmlFor="description">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  id="description"
-                  name="description"
-                  className="input"
-                  placeholder="Brief description..."
-                  value={newLink.description}
-                  onChange={handleChange}
-                />
-              </div>
-              <div>
-                <label className="label" htmlFor="slug">
-                  Slug (URL-friendly)
-                </label>
-                <input
-                  type="text"
-                  id="slug"
-                  name="slug"
-                  className="input"
-                  placeholder="e.g., product-feedback"
-                  value={newLink.slug}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
+          <div>
+            <label className="label" htmlFor="slug">
+              Link address
+            </label>
+            <div className="flex rounded-md border border-line bg-sunken focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/20 transition-[border-color,box-shadow]">
+              <span className="hidden sm:flex items-center pl-3 pr-1 text-[15px] text-muted select-none whitespace-nowrap">
+                {publicHost()}/
+              </span>
+              <input
+                type="text"
+                id="slug"
+                name="slug"
+                className="min-w-0 flex-1 rounded-r-md sm:rounded-l-none rounded-l-md bg-surface px-3 py-2.5 text-[15px] text-ink placeholder:text-muted/70 focus:outline-none"
+                placeholder="design-meetup-talk"
+                value={newLink.slug}
+                onChange={handleChange}
+                autoCapitalize="none"
+                spellCheck={false}
+                required
+              />
             </div>
-            <button
-              type="submit"
-              disabled={creating || status === 'loading'}
-              className="btn-primary w-full md:w-auto py-3"
-            >
-              {creating || status === 'loading' ? 'Creating...' : 'Create Link'}
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="label" htmlFor="description">
+              Context for people replying <span className="font-normal text-muted">(optional)</span>
+            </label>
+            <input
+              type="text"
+              id="description"
+              name="description"
+              className="input"
+              placeholder="What worked, what didn't, what you'd change"
+              value={newLink.description}
+              onChange={handleChange}
+            />
+            <p className="hint">Shown under the title. It also shapes the writing prompts people see.</p>
+          </div>
+
+          <div className="md:col-span-2">
+            <button type="submit" disabled={busy} className="btn-primary h-11 px-5 w-full sm:w-auto">
+              {creating ? 'Creating link' : 'Create link'}
             </button>
-          </form>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="card">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-emerald-700 dark:text-emerald-400">
-                Active Links ({activeLinks.length})
-              </h2>
-              <span className="badge-active">Accepting Replies</span>
-            </div>
-            {activeLinks.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                No active links yet. Create one above!
-              </div>
-            ) : (
-              <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-                {activeLinks.map((link) => (
-                  <li key={link._id} className="py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      
-                      <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">
-                          {link.title}
-                        </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          {link.slug}
-                        </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                          Replies: {link.replyCount ?? 0}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Link
-                        to={`/links/${link._id}/replies`}
-                        className="btn-secondary text-xs px-3 py-1.5"
-                      >
-                        View Replies
-                      </Link>
-                      <button
-                        onClick={() => handleToggleLink(link, true)}
-                        className="btn-warning text-xs px-3 py-1.5"
-                      >
-                        Deactivate
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
+        </form>
+      </section>
 
-          <div className="card">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300">
-                Inactive Links ({inactiveLinks.length})
-              </h2>
-              <span className="badge-inactive">Not Accepting Replies</span>
-            </div>
-            {inactiveLinks.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                No inactive links yet.
-              </div>
-            ) : (
-              <ul className="divide-y divide-gray-100 dark:divide-gray-700">
-                {inactiveLinks.map((link) => (
-                  <li key={link._id} className="py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      
-                      <div>
-                        <h3 className="font-medium text-gray-900 dark:text-white">
-                          {link.title}
-                        </h3>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">
-                          {link.slug}
-                        </p>
-                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                          Replies: {link.replyCount ?? 0}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Link
-                        to={`/links/${link._id}/replies`}
-                        className="btn-secondary text-xs px-3 py-1.5"
-                      >
-                        View Replies
-                      </Link>
-                      <button
-                        onClick={() => handleToggleLink(link, false)}
-                        className="btn-success text-xs px-3 py-1.5"
-                      >
-                        Activate
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+      <LinkSection
+        title="Open"
+        description="Accepting replies"
+        links={activeLinks}
+        isActive
+        pendingId={pendingId}
+        onToggle={handleToggleLink}
+        empty="No open links. Create one above, then share it."
+      />
 
-        {error && (
-          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-100 dark:border-red-800">
-            {error}
-          </div>
-        )}
-      </div>
-    </div>
+      <LinkSection
+        title="Closed"
+        description="Not accepting replies; past replies are kept"
+        links={inactiveLinks}
+        isActive={false}
+        pendingId={pendingId}
+        onToggle={handleToggleLink}
+        empty="Links you close appear here. You can reopen them any time."
+      />
+    </main>
   );
 };

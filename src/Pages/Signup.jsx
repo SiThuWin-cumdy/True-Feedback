@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { selectAuthStatus } from '../features/auth/authSlice';
 import { authAPI } from '../features/auth/authAPI';
+import { AuthLayout, Field } from '../components/AuthLayout';
 
 export const Signup = () => {
   const [submitError, setSubmitError] = useState('');
@@ -16,143 +17,96 @@ export const Signup = () => {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm({
-    defaultValues: {
-      username: '',
-      email: '',
-      password: '',
-    },
+    defaultValues: { username: '', email: '', password: '' },
     mode: 'onBlur',
   });
 
   const onSubmit = async (data) => {
     setSubmitError('');
-
     try {
       await authAPI.register(data);
       navigate('/login');
     } catch (err) {
-      setSubmitError(err.message || 'Registration failed');
+      setSubmitError(err.message || 'Account could not be created. Try again.');
     }
   };
 
+  const busy = isSubmitting || authStatus === 'loading';
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-      <div className="max-w-md w-full">
-        <div className="card">
-          <div className="text-center mb-8">
-            <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center mx-auto mb-4 dark:bg-indigo-500">
-              <span className="text-white font-bold text-lg">TF</span>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-              Create Account
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Join TrueFeedback and start collecting feedback
+    <AuthLayout
+      title="Create your account"
+      subtitle="Make a link, share it, and get feedback people wouldn't say to your face."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link to="/login" className="font-semibold text-accent hover:underline underline-offset-4">
+            Sign in
+          </Link>
+        </>
+      }
+    >
+      {submitError && <div className="alert mb-6">{submitError}</div>}
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
+        <Field id="username" label="Username" error={errors.username?.message}>
+          <input
+            id="username"
+            type="text"
+            autoComplete="username"
+            className="input"
+            aria-invalid={!!errors.username}
+            aria-describedby={errors.username ? 'username-error' : undefined}
+            {...register('username', {
+              required: 'Choose a username.',
+              minLength: { value: 3, message: 'Use at least 3 characters.' },
+            })}
+          />
+        </Field>
+
+        <Field id="email" label="Email" error={errors.email?.message}>
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            className="input"
+            placeholder="you@example.com"
+            aria-invalid={!!errors.email}
+            aria-describedby={errors.email ? 'email-error' : undefined}
+            {...register('email', {
+              required: 'Enter your email address.',
+              pattern: {
+                value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                message: 'Enter an email like name@example.com.',
+              },
+            })}
+          />
+        </Field>
+
+        <Field id="password" label="Password" error={errors.password?.message}>
+          <input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            className="input"
+            aria-invalid={!!errors.password}
+            aria-describedby={errors.password ? 'password-error' : 'password-hint'}
+            {...register('password', {
+              required: 'Choose a password.',
+              minLength: { value: 6, message: 'Use at least 6 characters.' },
+            })}
+          />
+          {!errors.password && (
+            <p id="password-hint" className="hint">
+              At least 6 characters.
             </p>
-          </div>
-
-          {submitError && (
-            <div className="mb-6 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm border border-red-100 dark:border-red-800">
-              {submitError}
-            </div>
           )}
+        </Field>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <label className="label" htmlFor="username">
-                Username
-              </label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                autoComplete="username"
-                className={`input ${errors.username ? 'border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-500 dark:focus:ring-red-500 dark:focus:border-red-500' : ''}`}
-                placeholder="johndoe"
-                {...register('username', {
-                  required: 'Username is required',
-                  minLength: {
-                    value: 3,
-                    message: 'Username must be at least 3 characters',
-                  },
-                })}
-              />
-              {errors.username && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                  {errors.username.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="label" htmlFor="email">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                className={`input ${errors.email ? 'border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-500 dark:focus:ring-red-500 dark:focus:border-red-500' : ''}`}
-                placeholder="you@example.com"
-                {...register('email', {
-                  required: 'Email is required',
-                  pattern: {
-                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                    message: 'Please enter a valid email',
-                  },
-                })}
-              />
-              {errors.email && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="label" htmlFor="password">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                className={`input ${errors.password ? 'border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-500 dark:focus:ring-red-500 dark:focus:border-red-500' : ''}`}
-                placeholder="••••••••"
-                {...register('password', {
-                  required: 'Password is required',
-                  minLength: {
-                    value: 6,
-                    message: 'Password must be at least 6 characters',
-                  },
-                })}
-              />
-              {errors.password && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || authStatus === 'loading'}
-              className="btn-primary w-full py-3"
-            >
-              {isSubmitting ? 'Creating account...' : 'Create Account'}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
-            Already have an account?{' '}
-            <a href="/login" className="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 font-medium">
-              Sign in
-            </a>
-          </p>
-        </div>
-      </div>
-    </div>
+        <button type="submit" disabled={busy} className="btn-primary w-full h-11">
+          {busy ? 'Creating account' : 'Create account'}
+        </button>
+      </form>
+    </AuthLayout>
   );
 };
