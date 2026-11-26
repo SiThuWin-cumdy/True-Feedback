@@ -15,18 +15,29 @@ export const PageLoader = ({ label = 'Loading' }) => (
   </div>
 );
 
-export const PageMessage = ({ title, children, action, actionTo }) => (
+export const PageMessage = ({ title, children, action, actionTo, onAction }) => (
   <div className="min-h-[70vh] flex items-center px-4">
     <div className="max-w-md mx-auto">
       <h1 className="text-2xl font-extrabold tracking-tight text-ink">{title}</h1>
       <p className="mt-2 text-muted leading-relaxed">{children}</p>
-      {action && (
+      {actionTo && (
         <Link to={actionTo} className="btn-secondary mt-6">
           {action}
         </Link>
       )}
+      {onAction && (
+        <button type="button" onClick={onAction} className="btn-secondary mt-6">
+          {action}
+        </button>
+      )}
     </div>
   </div>
+);
+
+export const ConnectionError = ({ onRetry }) => (
+  <PageMessage title="Couldn't reach TrueFeedback" action="Try again" onAction={onRetry}>
+    Check your connection, then try again.
+  </PageMessage>
 );
 
 export const BackLink = ({ to, children }) => (

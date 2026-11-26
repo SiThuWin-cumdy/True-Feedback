@@ -1,9 +1,9 @@
 import { Copy, ExternalLink } from 'lucide-react';
-import { copyLink, publicHost } from '../lib/links';
+import { copyLink, publicUrl, PUBLIC_HOST } from '../lib/links';
 
 // Owner-facing header for a single feedback link.
 export const LinkHeader = ({ link }) => {
-  const isActive = link.is_active !== false;
+  const { isActive } = link;
 
   return (
     <header className="mt-6">
@@ -22,17 +22,17 @@ export const LinkHeader = ({ link }) => {
       )}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <a
-          href={`/${link.slug}`}
+          href={publicUrl(link.slug)}
           target="_blank"
           rel="noreferrer"
           className="btn-secondary max-w-full"
         >
           <span className="truncate font-medium">
-            {publicHost()}/{link.slug}
+            {PUBLIC_HOST}/{link.slug}
           </span>
           <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted" aria-label="opens in a new tab" />
         </a>
-        <button onClick={() => copyLink(link.slug)} className="btn-ghost">
+        <button type="button" onClick={() => copyLink(link.slug)} className="btn-ghost">
           <Copy className="w-4 h-4" />
           Copy link
         </button>

@@ -1,107 +1,64 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { createSlice, isAnyOf } from '@reduxjs/toolkit';
+import { createApiThunk } from '../../lib/createApiThunk';
+import { storage, TOKEN_KEY } from '../../lib/storage';
 import { authAPI } from './authAPI';
 
-const initialState = {
+const signedOutState = {
   user: null,
-  token: localStorage.getItem('token') || null,
-  status: 'idle',
-  error: null,
+  token: null,
+  status: 'idle', // of restoring the session: idle | loading | succeeded | failed
+  requestId: null, // the fetchMe whose result is still wanted
 };
 
-export const fetchMe = createAsyncThunk(
-  'auth/me',
-  async (_, { rejectWithValue }) => {
-    try {
-      return await authAPI.getMe();
-    } catch (err) {
-      return rejectWithValue(err.message || 'Failed to fetch user profile');
-    }
-  }
-);
+// /auth/login returns `id`, /auth/me returns `_id`.
+const toUser = ({ id, _id, username, email }) => ({ id: id ?? _id, username, email });
 
+export const fetchMe = createApiThunk('auth/me', () => authAPI.getMe(), {
+  condition: (_, { getState }) => getState().auth.status !== 'loading',
+});
+
+// The token is persisted by store.js, so reducers stay pure.
 const authSlice = createSlice({
   name: 'auth',
-  initialState,
+  initialState: () => ({ ...signedOutState, token: storage.get(TOKEN_KEY) || null }),
   reducers: {
-    signIn: (state, action) => {
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      localStorage.setItem('token', action.payload.token);
-      state.status = 'succeeded';
-      state.error = null;
-    },
-    signOut: (state) => {
-      state.user = null;
-      state.token = null;
-      localStorage.removeItem('token');
-      state.status = 'idle';
-      state.error = null;
-    },
-    setCredentials: (state, action) => {
-      state.user = action.payload.user;
-      state.token = action.payload.token;
-      localStorage.setItem('token', action.payload.token);
-    },
-    clearError: (state) => {
-      state.error = null;
-    },
-    setStatus: (state, action) => {
-      state.status = action.payload;
-    },
+    signIn: (_, { payload: { user, token } }) => ({
+      ...signedOutState,
+      user: toUser(user),
+      token,
+      status: 'succeeded',
+    }),
+    signOut: () => signedOutState,
+    // Another tab signed in or out.
+    sessionReplaced: (_, { payload: token }) => ({ ...signedOutState, token: token || null }),
   },
   extraReducers: (builder) => {
     builder
-      .addCase('auth/register/pending', (state) => {
+      .addCase(fetchMe.pending, (state, { meta }) => {
         state.status = 'loading';
-        state.error = null;
+        state.requestId = meta.requestId;
       })
-      .addCase('auth/register/fulfilled', (state) => {
+      .addCase(fetchMe.fulfilled, (state, { payload, meta }) => {
+        if (state.requestId !== meta.requestId) return;
         state.status = 'succeeded';
-        state.error = null;
+        state.user = toUser(payload);
       })
-      .addCase('auth/register/rejected', (state, action) => {
+      // Keep the token: a 401 signs out via the unauthorized handler, and any
+      // other failure (offline, server down) says nothing about the session.
+      .addCase(fetchMe.rejected, (state, { meta }) => {
+        if (state.requestId !== meta.requestId) return;
         state.status = 'failed';
-        state.error = action.error.message || 'Registration failed';
-      })
-      .addCase('auth/login/pending', (state) => {
-        state.status = 'loading';
-        state.error = null;
-      })
-      .addCase('auth/login/fulfilled', (state, action) => {
-        state.status = 'succeeded';
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        localStorage.setItem('token', action.payload.token);
-        state.error = null;
-      })
-      .addCase('auth/login/rejected', (state, action) => {
-        state.status = 'failed';
-        state.error = action.error.message || 'Login failed';
-      })
-      .addCase(fetchMe.pending, (state) => {
-        state.status = 'loading';
-      })
-      .addCase(fetchMe.fulfilled, (state, action) => {
-        state.status = 'succeeded';
-        state.user = action.payload;
-        state.error = null;
-      })
-      .addCase(fetchMe.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = action.error.message || 'Session expired';
-        state.user = null;
-        state.token = null;
-        localStorage.removeItem('token');
       });
   },
 });
 
-export const { signIn, signOut, setCredentials, clearError, setStatus } =
-  authSlice.actions;
+export const { signIn, signOut, sessionReplaced } = authSlice.actions;
+
+// Other slices drop the previous account's data on these.
+export const isSessionChange = isAnyOf(signIn, signOut, sessionReplaced);
 
 export const selectUser = (state) => state.auth.user;
 export const selectToken = (state) => state.auth.token;
 export const selectAuthStatus = (state) => state.auth.status;
-export const selectAuthError = (state) => state.auth.error;
 
 export default authSlice.reducer;

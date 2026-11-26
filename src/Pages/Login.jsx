@@ -1,17 +1,16 @@
 import { useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, Link } from 'react-router-dom';
+import { useDispatch } from 'react-redux';
+import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import { signIn, selectAuthStatus } from '../features/auth/authSlice';
+import { signIn } from '../features/auth/authSlice';
 import { authAPI } from '../features/auth/authAPI';
-import { AuthLayout, Field } from '../components/AuthLayout';
+import { AuthLayout } from '../components/AuthLayout';
+import { TextField } from '../components/TextField';
+import { emailRules } from '../lib/validation';
 
 export const Login = () => {
   const [submitError, setSubmitError] = useState('');
-
   const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const authStatus = useSelector(selectAuthStatus);
 
   const {
     register,
@@ -25,15 +24,13 @@ export const Login = () => {
   const onSubmit = async (data) => {
     setSubmitError('');
     try {
-      const result = await authAPI.login(data);
-      dispatch(signIn({ user: result.user, token: result.token }));
-      navigate('/dashboard');
+      // Not a thunk: thunk arguments land in Redux actions, and this one is a password.
+      const { user, token } = await authAPI.login(data);
+      dispatch(signIn({ user, token })); // GuestRoute redirects to the dashboard
     } catch (err) {
       setSubmitError(err.message || 'Sign in failed. Check your email and password.');
     }
   };
-
-  const busy = isSubmitting || authStatus === 'loading';
 
   return (
     <AuthLayout
@@ -48,45 +45,34 @@ export const Login = () => {
         </>
       }
     >
-      {submitError && <div className="alert mb-6">{submitError}</div>}
+      {submitError && (
+        <div className="alert mb-6" role="alert">
+          {submitError}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-        <Field id="email" label="Email" error={errors.email?.message}>
-          <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            className="input"
-            placeholder="you@example.com"
-            aria-invalid={!!errors.email}
-            aria-describedby={errors.email ? 'email-error' : undefined}
-            {...register('email', {
-              required: 'Enter your email address.',
-              pattern: {
-                value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-                message: 'Enter an email like name@example.com.',
-              },
-            })}
-          />
-        </Field>
+        <TextField
+          id="email"
+          label="Email"
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          error={errors.email}
+          registration={register('email', emailRules)}
+        />
 
-        <Field id="password" label="Password" error={errors.password?.message}>
-          <input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            className="input"
-            aria-invalid={!!errors.password}
-            aria-describedby={errors.password ? 'password-error' : undefined}
-            {...register('password', {
-              required: 'Enter your password.',
-              minLength: { value: 6, message: 'Passwords are at least 6 characters.' },
-            })}
-          />
-        </Field>
+        <TextField
+          id="password"
+          label="Password"
+          type="password"
+          autoComplete="current-password"
+          error={errors.password}
+          registration={register('password', { required: 'Enter your password.' })}
+        />
 
-        <button type="submit" disabled={busy} className="btn-primary w-full h-11">
-          {busy ? 'Signing in' : 'Sign in'}
+        <button type="submit" disabled={isSubmitting} className="btn-primary w-full h-11">
+          {isSubmitting ? 'Signing in' : 'Sign in'}
         </button>
       </form>
     </AuthLayout>

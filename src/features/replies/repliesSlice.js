@@ -1,122 +1,72 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { createSlice } from '@reduxjs/toolkit';
+import { createApiThunk } from '../../lib/createApiThunk';
+import { isSessionChange } from '../auth/authSlice';
 import { repliesAPI } from './repliesAPI';
 
+const PAGE_SIZE = 10;
+
 const initialState = {
+  linkId: null, // the link whose replies are loaded
   replies: [],
   totalCount: 0,
-  skip: 0,
-  limit: 10,
-  totalPages: 1,
   status: 'idle',
   error: null,
+  requestId: null,
 };
 
-export const createReply = createAsyncThunk(
-  'replies/create',
-  async ({ linkId, replyData }, { rejectWithValue }) => {
-    try {
-      return await repliesAPI.createReply(linkId, replyData);
-    } catch (err) {
-      return rejectWithValue(err.message || 'Failed to create reply');
-    }
-  }
+export const createReply = createApiThunk('replies/create', ({ linkId, message }) =>
+  repliesAPI.createReply(linkId, message)
 );
 
-export const fetchReplies = createAsyncThunk(
+// Loads the first page, or the next one with `append`.
+export const fetchReplies = createApiThunk(
   'replies/fetch',
-  async ({ linkId, append = false }, { getState, rejectWithValue }) => {
-    // Read skip from Redux state to avoid stale closure values from components
-    const state = getState();
-    const skip = state.replies?.skip ?? 0;
-    const limit = state.replies?.limit ?? 10;
-    try {
-      return await repliesAPI.getReplies(linkId, skip, limit);
-    } catch (err) {
-      return rejectWithValue(err.message || 'Failed to fetch replies');
-    }
-  }
+  ({ linkId, append = false }, { getState }) =>
+    repliesAPI.getReplies(linkId, {
+      skip: append ? getState().replies.replies.length : 0,
+      limit: PAGE_SIZE,
+    })
 );
 
 const repliesSlice = createSlice({
   name: 'replies',
   initialState,
   reducers: {
-    clearReplies: (state) => {
-      state.replies = [];
-      state.totalCount = 0;
-      state.skip = 0;
-      state.totalPages = 1;
-    },
-    clearError: (state) => {
-      state.error = null;
-    },
-    setSkip: (state, action) => {
-      state.skip = action.payload;
-    },
-    incrementSkip: (state) => {
-      state.skip += state.limit;
-    },
+    clearReplies: () => initialState,
   },
   extraReducers: (builder) => {
     builder
-      // Create reply
-      .addCase(createReply.pending, (state) => {
-        state.status = 'loading';
-        state.error = null;
-      })
-      .addCase(createReply.fulfilled, (state, action) => {
-        state.status = 'succeeded';
-        state.replies.unshift(action.payload);
+      .addCase(createReply.fulfilled, (state, { payload, meta }) => {
+        // Only the owner has the link's replies loaded.
+        if (state.linkId !== meta.arg.linkId) return;
+        state.replies.unshift(payload);
         state.totalCount += 1;
-        state.error = null;
       })
-      .addCase(createReply.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = action.payload || action.error.message;
+      .addCase(fetchReplies.pending, (state, { meta }) => {
+        const { linkId, append } = meta.arg;
+        const base = append ? state : initialState;
+        return { ...base, linkId, status: 'loading', error: null, requestId: meta.requestId };
       })
-      // Fetch replies
-      .addCase(fetchReplies.pending, (state) => {
-        state.status = 'loading';
-        state.error = null;
-      })
-      .addCase(fetchReplies.fulfilled, (state, action) => {
+      .addCase(fetchReplies.fulfilled, (state, { payload, meta }) => {
+        if (state.requestId !== meta.requestId) return;
+        // Replies sent since the last page shift the offsets, so pages can overlap.
+        const loadedIds = new Set(state.replies.map((reply) => reply._id));
+        const page = Array.isArray(payload?.replies) ? payload.replies : [];
+        state.replies.push(...page.filter((reply) => !loadedIds.has(reply._id)));
+        state.totalCount = payload?.totalCount ?? state.replies.length;
         state.status = 'succeeded';
-        // API returns wrapped response: { status: 'success', data: { replies: [...], totalCount: N } }
-        const { replies = [], totalCount = 0 } = action.payload || {};
-
-        const newReplies = Array.isArray(replies) ? replies : [];
-
-        if (state.skip === 0) {
-          // Initial load - replace
-          state.replies = newReplies;
-        } else {
-          // Load more - append
-          state.replies = [...state.replies, ...newReplies];
-        }
-
-        state.totalCount = totalCount;
-        state.totalPages = Math.ceil(state.totalCount / state.limit);
-        state.error = null;
       })
-      .addCase(fetchReplies.rejected, (state, action) => {
+      .addCase(fetchReplies.rejected, (state, { payload, error, meta }) => {
+        if (state.requestId !== meta.requestId) return;
         state.status = 'failed';
-        state.error = action.payload || action.error.message;
-      });
+        state.error = (payload ?? error).message;
+      })
+      .addMatcher(isSessionChange, () => initialState);
   },
 });
 
-export const { clearReplies, clearError: clearRepliesError, setSkip, incrementSkip } =
-  repliesSlice.actions;
+export const { clearReplies } = repliesSlice.actions;
 
-export const selectReplies = (state) => state.replies.replies;
-export const selectRepliesStatus = (state) => state.replies.status;
-export const selectRepliesError = (state) => state.replies.error;
-export const selectRepliesPagination = (state) => ({
-  skip: state.replies.skip,
-  limit: state.replies.limit,
-  totalCount: state.replies.totalCount,
-  totalPages: state.replies.totalPages,
-  hasMore: state.replies.replies.length < state.replies.totalCount,
-});
+export const selectRepliesState = (state) => state.replies;
 
 export default repliesSlice.reducer;

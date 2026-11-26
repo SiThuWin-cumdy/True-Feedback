@@ -13,17 +13,3 @@ export const AuthLayout = ({ title, subtitle, children, footer }) => (
     </div>
   </main>
 );
-
-export const Field = ({ id, label, error, children }) => (
-  <div>
-    <label className="label" htmlFor={id}>
-      {label}
-    </label>
-    {children}
-    {error && (
-      <p id={`${id}-error`} className="field-error">
-        {error}
-      </p>
-    )}
-  </div>
-);
