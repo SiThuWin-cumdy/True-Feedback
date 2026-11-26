@@ -7,10 +7,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Least privilege: builds run third-party install scripts, including on pull
-# requests. Only the deploy job can publish.
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 # One deployment at a time; don't cancel a deploy that is already running.
 concurrency:
@@ -55,9 +55,6 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
