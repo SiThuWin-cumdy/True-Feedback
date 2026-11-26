@@ -1,11 +1,14 @@
 import axiosInstance from '../../api/axiosInstance';
 
-export const repliesAPI = {
-  createReply: (linkId, replyData) =>
-    axiosInstance.post(`/feedback-links/${linkId}/replies`, replyData),
+const repliesPath = (linkId) => `/feedback-links/${encodeURIComponent(linkId)}/replies`;
 
-  getReplies: (linkId, skip = 0, limit = 10) =>
-    axiosInstance.get(`/feedback-links/${linkId}/replies`, {
+export const repliesAPI = {
+  // Replies are anonymous, so a signed-in writer's token must not go with them.
+  createReply: (linkId, message) =>
+    axiosInstance.post(repliesPath(linkId), { message }, { anonymous: true }),
+
+  getReplies: (linkId, { skip, limit }) =>
+    axiosInstance.get(repliesPath(linkId), {
       params: { skip, limit },
       suppressToast: true,
     }),

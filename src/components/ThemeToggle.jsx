@@ -1,23 +1,28 @@
 import { useEffect, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
+import { storage, THEME_KEY } from '../lib/storage';
 
 export const ThemeToggle = () => {
-  const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem('theme');
-    if (saved) return saved === 'dark';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
+  // The inline script in index.html already applied the saved or system theme.
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains('dark')
+  );
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
   }, [isDark]);
+
+  const toggle = () => {
+    setIsDark(!isDark);
+    storage.set(THEME_KEY, isDark ? 'light' : 'dark');
+  };
 
   const label = isDark ? 'Switch to light mode' : 'Switch to dark mode';
 
   return (
     <button
-      onClick={() => setIsDark((prev) => !prev)}
+      type="button"
+      onClick={toggle}
       className="btn-ghost w-10 px-0"
       aria-label={label}
       title={label}

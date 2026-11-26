@@ -1,30 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
-import {
-  fetchLinkBySlug,
-  selectCurrentLink,
-  selectLinksStatus,
-  selectLinksError,
-} from '../features/feedbackLinks/feedbackLinksSlice';
-import axiosInstance from '../api/axiosInstance';
 import { selectUser } from '../features/auth/authSlice';
-import {
-  createReply,
-  selectReplies,
-  selectRepliesStatus,
-  selectRepliesPagination,
-  incrementSkip,
-  setSkip,
-  clearReplies,
-  fetchReplies,
-} from '../features/replies/repliesSlice';
-import { ReplyList } from '../components/Replies';
-import { PageLoader, PageMessage, Spinner } from '../components/PageState';
+import { createReply } from '../features/replies/repliesSlice';
+import { useFeedbackSuggestions } from '../hooks/useFeedbackSuggestions';
+import { usePublicLink } from '../hooks/useLink';
+import { replyMessageRules } from '../lib/validation';
+import { RepliesSection } from '../components/RepliesSection';
+import { ConnectionError, PageLoader, PageMessage, Spinner } from '../components/PageState';
 
 // Shown after sending: the note drops into the box's slot.
-const SentNote = ({ message, name, onWriteAnother }) => (
+const SentNote = ({ message, onWriteAnother }) => (
   <section className="mt-10 max-w-xl" aria-live="polite">
     <div className="relative h-40 overflow-hidden" aria-hidden="true">
       <div className="slip-drop absolute inset-x-6 sm:inset-x-10 top-3 bottom-0 rounded-sm bg-note px-5 py-4 text-note-ink">
@@ -38,27 +25,23 @@ const SentNote = ({ message, name, onWriteAnother }) => (
     <div className="fade-in-late mt-8">
       <h2 className="text-2xl font-extrabold tracking-[-0.02em] text-ink">Feedback sent</h2>
       <p className="mt-2 text-[17px] text-muted leading-relaxed">
-        {name
-          ? `Sent with your name, ${name}. Only the owner of this page can read it.`
-          : "Sent anonymously. The owner can read it, but they can't see who wrote it."}
+        Sent anonymously. The owner can read it, but they can't see who wrote it.
       </p>
-      <button onClick={onWriteAnother} className="btn-secondary mt-6">
+      <button type="button" onClick={onWriteAnother} className="btn-secondary mt-6">
         Write another
       </button>
     </div>
   </section>
 );
 
-export const PublicLink = () => {
-  const { slug } = useParams();
+const FeedbackPage = ({ link }) => {
   const dispatch = useDispatch();
+  const user = useSelector(selectUser);
+  const isOwner = Boolean(user) && link.owner === user.id;
 
-  const [replyError, setReplyError] = useState('');
-  const [sent, setSent] = useState(null);
-
-  // AI Suggestions state - shown BEFORE submit
-  const [aiSuggestions, setAiSuggestions] = useState([]);
-  const [isSuggestingMore, setIsSuggestingMore] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [sentMessage, setSentMessage] = useState('');
+  const { suggestions, loading, loadMore, restart } = useFeedbackSuggestions(link);
 
   const {
     register,
@@ -67,132 +50,23 @@ export const PublicLink = () => {
     setFocus,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm({
-    defaultValues: {
-      user: '',
-      message: '',
-    },
-  });
-
-  const currentLink = useSelector(selectCurrentLink);
-  const linksStatus = useSelector(selectLinksStatus);
-  const linksError = useSelector(selectLinksError);
-  const user = useSelector(selectUser);
-  const replies = useSelector(selectReplies);
-  const repliesStatus = useSelector(selectRepliesStatus);
-  const { totalCount, hasMore } = useSelector(selectRepliesPagination);
-
-  // Link loaded in the store actually belongs to the current URL
-  const isCurrentLinkLoaded = currentLink?.slug === slug;
-
-  // Fetch link details when slug changes
-  useEffect(() => {
-    if (!isCurrentLinkLoaded) {
-      dispatch(fetchLinkBySlug(slug))
-        .unwrap()
-        .catch((err) => console.error('Fetch link error:', err));
-    }
-  }, [dispatch, slug, isCurrentLinkLoaded]);
-
-  // Only fetch replies if the logged-in user is the owner of the link
-  const isOwner = user && currentLink && currentLink.user === user._id;
-
-  useEffect(() => {
-    // Reset replies state when link changes
-    dispatch(clearReplies());
-    dispatch(setSkip(0));
-
-    if (isOwner && currentLink?._id) {
-      dispatch(fetchReplies({ linkId: currentLink._id }));
-    }
-  }, [dispatch, isOwner, currentLink?._id]);
-
-  const linkId = isCurrentLinkLoaded ? currentLink._id : null;
-  const linkTitle = isCurrentLinkLoaded ? currentLink.title || '' : '';
-  const linkDescription = isCurrentLinkLoaded ? currentLink.description || '' : '';
-
-  // Tracks the latest suggestion request so stale responses are discarded
-  const suggestionRequestRef = useRef(0);
-
-  const fetchAiSuggestions = useCallback(
-    async ({ append }) => {
-      if (!linkTitle && !linkDescription) return;
-
-      const requestId = ++suggestionRequestRef.current;
-      setIsSuggestingMore(true);
-      try {
-        const response = await axiosInstance.post('/feedback-suggestions', {
-          topicTitle: linkTitle,
-          topicDescription: linkDescription,
-        });
-        if (requestId !== suggestionRequestRef.current) return;
-
-        const suggestions = Array.isArray(response) ? response : [];
-        setAiSuggestions((prev) =>
-          append ? [...new Set([...prev, ...suggestions])] : suggestions
-        );
-      } catch (error) {
-        // Keep existing suggestions so the user can retry
-        console.error('AI suggestions error:', error);
-      } finally {
-        if (requestId === suggestionRequestRef.current) {
-          setIsSuggestingMore(false);
-        }
-      }
-    },
-    [linkTitle, linkDescription]
-  );
-
-  // Reset and refetch suggestions whenever the link (or its topic) changes
-  useEffect(() => {
-    suggestionRequestRef.current += 1; // invalidate in-flight requests
-    setAiSuggestions([]);
-    setIsSuggestingMore(false);
-    setSent(null);
-    if (linkId) {
-      fetchAiSuggestions({ append: false });
-    }
-  }, [linkId, fetchAiSuggestions]);
-
-  const isActive = currentLink?.is_active !== false;
+  } = useForm({ defaultValues: { message: '' } });
 
   const onSubmit = async (data) => {
-    setReplyError('');
-
-    if (!isActive) {
-      setReplyError('This link is closed and is not accepting feedback.');
-      return;
-    }
-
-    const message = data.message;
-
+    const message = data.message.trim();
+    setSubmitError('');
     try {
-      await dispatch(
-        createReply({
-          linkId: currentLink._id,
-          replyData: {
-            user: data.user || null,
-            message,
-          },
-        })
-      ).unwrap();
-
-      if (isOwner) {
-        dispatch(fetchReplies({ linkId: currentLink._id, skip: 0, limit: 10 }));
-      }
-
-      setSent({ message, name: data.user.trim() });
+      await dispatch(createReply({ linkId: link._id, message })).unwrap();
+      setSentMessage(message);
       reset();
-      // Reset AI suggestions after submit
-      setAiSuggestions([]);
     } catch (err) {
-      setReplyError(err.message || 'Your feedback was not sent. Check your connection and try again.');
+      setSubmitError(err.message);
     }
   };
 
   const writeAnother = () => {
-    setSent(null);
-    fetchAiSuggestions({ append: false });
+    setSentMessage('');
+    restart();
   };
 
   const applySuggestion = (suggestion) => {
@@ -200,34 +74,17 @@ export const PublicLink = () => {
     setFocus('message');
   };
 
-  const loadMore = () => {
-    dispatch(incrementSkip());
-    dispatch(fetchReplies({ linkId: currentLink?._id }));
-  };
-
-  if (!isCurrentLinkLoaded && linksStatus === 'loading') {
-    return <PageLoader />;
-  }
-
-  if (!isCurrentLinkLoaded || linksError) {
-    return (
-      <PageMessage title="This link doesn't exist">
-        Check the address for typos. If it came from someone else, they may have removed it.
-      </PageMessage>
-    );
-  }
-
-  const showSuggestions = aiSuggestions.length > 0 || isSuggestingMore;
+  const showSuggestions = suggestions.length > 0 || loading;
 
   return (
     <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16">
       <header className="max-w-3xl">
         <h1 className="text-[36px] sm:text-[52px] leading-[1.04] font-extrabold tracking-[-0.035em] text-ink text-balance">
-          {currentLink.title}
+          {link.title}
         </h1>
-        {currentLink.description && (
+        {link.description && (
           <p className="mt-4 text-lg sm:text-xl text-muted leading-relaxed max-w-[60ch]">
-            {currentLink.description}
+            {link.description}
           </p>
         )}
       </header>
@@ -238,12 +95,12 @@ export const PublicLink = () => {
         </p>
       )}
 
-      {!isActive ? (
+      {!link.isActive ? (
         <p className="mt-10 max-w-xl rounded-lg bg-sunken px-5 py-4 text-muted">
           This link is closed, so it isn't accepting feedback right now.
         </p>
-      ) : sent ? (
-        <SentNote message={sent.message} name={sent.name} onWriteAnother={writeAnother} />
+      ) : sentMessage ? (
+        <SentNote message={sentMessage} onWriteAnother={writeAnother} />
       ) : (
         <div
           className={`mt-10 grid gap-10 ${
@@ -251,9 +108,9 @@ export const PublicLink = () => {
           }`}
         >
           <form onSubmit={handleSubmit(onSubmit)} noValidate>
-            {replyError && (
+            {submitError && (
               <div className="alert mb-5" role="alert">
-                {replyError}
+                {submitError}
               </div>
             )}
 
@@ -267,9 +124,7 @@ export const PublicLink = () => {
               placeholder="Be specific: what happened, how it landed, what you'd change."
               aria-invalid={!!errors.message}
               aria-describedby={errors.message ? 'message-error' : undefined}
-              {...register('message', {
-                validate: (v) => v.trim() !== '' || 'Write something before sending.',
-              })}
+              {...register('message', replyMessageRules)}
             />
             {errors.message && (
               <p id="message-error" className="field-error">
@@ -277,30 +132,12 @@ export const PublicLink = () => {
               </p>
             )}
 
-            <div className="mt-6 flex flex-col sm:flex-row sm:items-start gap-4">
-              <div className="flex-1">
-                <label className="label" htmlFor="user">
-                  Name <span className="font-normal text-muted">(optional)</span>
-                </label>
-                <input
-                  id="user"
-                  className="input"
-                  autoComplete="off"
-                  aria-describedby="user-hint"
-                  {...register('user')}
-                />
-                <p id="user-hint" className="hint">
-                  Leave this blank to stay anonymous.
-                </p>
-              </div>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="btn-primary h-11 px-6 sm:mt-[26px]"
-              >
+            <div className="mt-6 flex flex-col sm:flex-row sm:items-center gap-4">
+              <button type="submit" disabled={isSubmitting} className="btn-primary h-11 px-6">
                 {isSubmitting && <Spinner className="w-4 h-4 border-on-accent/30 border-t-on-accent" />}
                 {isSubmitting ? 'Sending' : 'Send feedback'}
               </button>
+              <p className="text-[13px] text-muted">Sent anonymously.</p>
             </div>
           </form>
 
@@ -314,8 +151,8 @@ export const PublicLink = () => {
               </p>
 
               <ul className="mt-4 space-y-2.5">
-                {aiSuggestions.map((suggestion, index) => (
-                  <li key={`${index}-${suggestion}`}>
+                {suggestions.map((suggestion) => (
+                  <li key={suggestion}>
                     <button
                       type="button"
                       onClick={() => applySuggestion(suggestion)}
@@ -325,8 +162,8 @@ export const PublicLink = () => {
                     </button>
                   </li>
                 ))}
-                {isSuggestingMore &&
-                  [0, 1, 2].slice(aiSuggestions.length ? 2 : 0).map((i) => (
+                {loading &&
+                  [0, 1, 2].slice(suggestions.length ? 2 : 0).map((i) => (
                     <li
                       key={`placeholder-${i}`}
                       className="h-[60px] rounded-sm bg-note/35 animate-pulse"
@@ -335,14 +172,14 @@ export const PublicLink = () => {
                   ))}
               </ul>
 
-              {aiSuggestions.length > 0 && (
+              {suggestions.length > 0 && (
                 <button
                   type="button"
-                  disabled={isSuggestingMore}
-                  onClick={() => fetchAiSuggestions({ append: true })}
+                  disabled={loading}
+                  onClick={loadMore}
                   className="btn-ghost btn-sm mt-3 -ml-3"
                 >
-                  {isSuggestingMore ? 'Finding more prompts' : 'More prompts'}
+                  {loading ? 'Finding more prompts' : 'More prompts'}
                 </button>
               )}
             </aside>
@@ -350,26 +187,24 @@ export const PublicLink = () => {
         </div>
       )}
 
-      {isOwner && (
-        <section className="mt-20 max-w-3xl" aria-labelledby="owner-replies-heading">
-          <h2
-            id="owner-replies-heading"
-            className="border-b border-ink pb-3 text-lg font-extrabold tracking-[-0.01em] text-ink"
-          >
-            Replies{' '}
-            <span className="font-semibold text-muted tabular-nums">{totalCount ?? replies.length}</span>
-          </h2>
-          <div className="mt-4">
-            <ReplyList
-              replies={replies}
-              status={repliesStatus}
-              hasMore={hasMore}
-              totalCount={totalCount}
-              onLoadMore={loadMore}
-            />
-          </div>
-        </section>
-      )}
+      {isOwner && <RepliesSection linkId={link._id} className="mt-20 max-w-3xl" />}
     </main>
   );
+};
+
+export const PublicLink = () => {
+  const { slug } = useParams();
+  const { link, loading, error, retry } = usePublicLink(slug);
+
+  if (loading) return <PageLoader />;
+  if (error && !error.status) return <ConnectionError onRetry={retry} />;
+  if (!link) {
+    return (
+      <PageMessage title="This link doesn't exist">
+        Check the address for typos. If it came from someone else, they may have removed it.
+      </PageMessage>
+    );
+  }
+
+  return <FeedbackPage key={link._id} link={link} />;
 };

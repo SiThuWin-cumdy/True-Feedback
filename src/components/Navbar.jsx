@@ -1,7 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { Link, NavLink } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
-import { signOut, selectUser, selectAuthStatus } from '../features/auth/authSlice';
+import { signOut, selectUser } from '../features/auth/authSlice';
 import { ThemeToggle } from './ThemeToggle';
 import { Logo } from './Logo';
 
@@ -13,8 +13,6 @@ const navLinkClass = ({ isActive }) =>
 export const Navbar = () => {
   const dispatch = useDispatch();
   const user = useSelector(selectUser);
-  const authStatus = useSelector(selectAuthStatus);
-  const signingOut = authStatus === 'loading';
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-paper/85 backdrop-blur-md">
@@ -31,13 +29,13 @@ export const Navbar = () => {
                 {user.username || user.email}
               </span>
               <button
+                type="button"
                 onClick={() => dispatch(signOut())}
-                disabled={signingOut}
                 className="btn-ghost px-2.5 sm:px-3"
                 aria-label="Sign out"
               >
                 <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">{signingOut ? 'Signing out' : 'Sign out'}</span>
+                <span className="hidden sm:inline">Sign out</span>
               </button>
             </>
           ) : (

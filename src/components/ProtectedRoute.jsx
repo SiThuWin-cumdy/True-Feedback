@@ -1,33 +1,29 @@
-import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
-import { fetchMe, selectUser, selectAuthStatus } from '../features/auth/authSlice';
-import { PageLoader } from './PageState';
+import { Navigate, Outlet } from 'react-router-dom';
+import { fetchMe, selectAuthStatus, selectToken, selectUser } from '../features/auth/authSlice';
+import { ConnectionError, PageLoader } from './PageState';
 
-export const ProtectedRoute = ({ children }) => {
+// App restores the session; these routes wait for it.
+
+export const ProtectedRoute = () => {
   const dispatch = useDispatch();
-  const navigate = useNavigate();
   const user = useSelector(selectUser);
-  const authStatus = useSelector(selectAuthStatus);
+  const token = useSelector(selectToken);
+  const status = useSelector(selectAuthStatus);
 
-  useEffect(() => {
-    if (authStatus === 'idle' && !user) {
-      const token = localStorage.getItem('token');
-      if (token) {
-        dispatch(fetchMe());
-      } else {
-        navigate('/login');
-      }
-    }
-  }, [dispatch, navigate, user, authStatus]);
+  if (user) return <Outlet />;
+  if (!token) return <Navigate to="/login" replace />;
+  if (status === 'failed') return <ConnectionError onRetry={() => dispatch(fetchMe())} />;
+  return <PageLoader />;
+};
 
-  if (authStatus === 'loading' && !user) {
-    return <PageLoader />;
-  }
+// For pages that only make sense signed out.
+export const GuestRoute = () => {
+  const user = useSelector(selectUser);
+  const token = useSelector(selectToken);
+  const status = useSelector(selectAuthStatus);
 
-  if (!user) {
-    return null;
-  }
-
-  return children;
+  if (user) return <Navigate to="/dashboard" replace />;
+  if (token && status !== 'failed') return <PageLoader />;
+  return <Outlet />;
 };

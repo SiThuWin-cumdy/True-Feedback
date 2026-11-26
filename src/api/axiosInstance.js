@@ -1,57 +1,69 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { storage, TOKEN_KEY } from '../lib/storage';
+import { resolveApiBaseUrl } from './apiBaseUrl';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api/v1';
+const DEFAULT_ERROR = 'An unexpected error occurred';
 
+// Custom request options:
+// - suppressToast: don't toast the result.
+// - anonymous: don't attach the session token, for public endpoints that must
+//   not reveal who is calling.
 const axiosInstance = axios.create({
-  baseURL: API_BASE,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: resolveApiBaseUrl(import.meta.env),
+  // An absolute request URL would otherwise send the token to another host.
+  allowAbsoluteUrls: false,
+  timeout: 30_000,
+  headers: { 'Content-Type': 'application/json' },
 });
 
-axiosInstance.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+let onUnauthorized = () => {};
 
+// Called with the token the API rejected. Set by the store, which can't be
+// imported here without a cycle.
+export const setUnauthorizedHandler = (handler) => {
+  onUnauthorized = handler;
+};
+
+const fail = (message, config, status) => {
+  if (!config?.suppressToast) toast.error(message);
+  const error = new Error(message);
+  error.status = status;
+  return Promise.reject(error);
+};
+
+axiosInstance.interceptors.request.use((config) => {
+  const token = config.anonymous ? null : storage.get(TOKEN_KEY);
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+    config.sentToken = token;
+  }
+  return config;
+});
+
+// Unwraps the API's `{ status, message, data }` envelope.
 axiosInstance.interceptors.response.use(
   (response) => {
     const { status, message, data } = response.data || {};
-    const suppressToast = response.config?.suppressToast;
-
-    if (status === 'success') {
-      if (message && !suppressToast) {
-        toast.success(message);
-      }
-      return data;
-    }
 
     if (status === 'error') {
-      if (!suppressToast) {
-        toast.error(message || 'An error occurred');
-      }
-      return Promise.reject(new Error(message || 'An error occurred'));
+      return fail(message || DEFAULT_ERROR, response.config, response.status);
     }
+    if (status !== 'success') return response.data;
 
-    return response.data;
+    if (message && !response.config.suppressToast) toast.success(message);
+    return data;
   },
   (error) => {
-    const suppressToast = error.config?.suppressToast;
-    const message =
-      error.response?.data?.message ||
-      error.message ||
-      'An unexpected error occurred';
-    if (!suppressToast) {
-      toast.error(message);
+    const { config, response } = error;
+    if (response?.status === 401 && config?.sentToken) {
+      onUnauthorized(config.sentToken);
     }
-    return Promise.reject(new Error(message));
+    return fail(
+      response?.data?.message || error.message || DEFAULT_ERROR,
+      config,
+      response?.status
+    );
   }
 );
 

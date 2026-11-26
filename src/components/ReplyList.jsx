@@ -1,4 +1,4 @@
-import { LoadMore } from './Pagination';
+import { LoadMore } from './LoadMore';
 import { Spinner } from './PageState';
 
 const formatDate = (value) => {
@@ -11,16 +11,10 @@ const formatDate = (value) => {
   });
 };
 
-const replyAuthor = (reply) => {
-  if (reply.user?.username) return reply.user.username;
-  if (typeof reply.user === 'string' && reply.user) return reply.user;
-  return '';
-};
-
 // Feedback is set in the serif "voice" face: it's what a person wrote.
-export const ReplyItem = ({ reply }) => {
-  const author = replyAuthor(reply);
-  const date = formatDate(reply.created_at || reply.createdAt);
+const ReplyItem = ({ reply }) => {
+  const author = reply.user?.username;
+  const date = formatDate(reply.createdAt);
 
   return (
     <li className="py-6 first:pt-1">
@@ -33,7 +27,7 @@ export const ReplyItem = ({ reply }) => {
         ) : (
           <span>Anonymous</span>
         )}
-        {date && <time dateTime={reply.created_at || reply.createdAt}>{date}</time>}
+        {date && <time dateTime={reply.createdAt}>{date}</time>}
       </p>
     </li>
   );
@@ -42,20 +36,19 @@ export const ReplyItem = ({ reply }) => {
 export const ReplyList = ({
   replies,
   status,
-  hasMore,
   totalCount,
   onLoadMore,
   emptyText = 'No replies yet. Share the link to start collecting feedback.',
 }) => {
-  if (status === 'loading' && replies.length === 0) {
-    return (
-      <div className="flex items-center gap-3 py-10 text-sm text-muted">
-        <Spinner /> Loading replies
-      </div>
-    );
-  }
-
   if (replies.length === 0) {
+    if (status === 'failed') return null; // the section shows the error
+    if (status !== 'succeeded') {
+      return (
+        <div className="flex items-center gap-3 py-10 text-sm text-muted">
+          <Spinner /> Loading replies
+        </div>
+      );
+    }
     return <p className="py-10 text-muted">{emptyText}</p>;
   }
 
@@ -66,13 +59,14 @@ export const ReplyList = ({
           <ReplyItem key={reply._id} reply={reply} />
         ))}
       </ul>
-      <LoadMore
-        hasMore={hasMore}
-        isLoading={status === 'loading'}
-        onLoadMore={onLoadMore}
-        shownCount={replies.length}
-        totalCount={totalCount}
-      />
+      {replies.length < totalCount && (
+        <LoadMore
+          isLoading={status === 'loading'}
+          onLoadMore={onLoadMore}
+          shownCount={replies.length}
+          totalCount={totalCount}
+        />
+      )}
     </>
   );
 };
